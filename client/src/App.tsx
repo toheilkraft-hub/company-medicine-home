@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
 import { AuthProvider } from "./contexts/AuthContext";
+import PasswordGate from "./components/PasswordGate";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Chat from "./pages/Chat";

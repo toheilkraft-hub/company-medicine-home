@@ -13,11 +13,14 @@ import dashboardRoutes from "./routes/dashboard.js";
 import promptRoutes from "./routes/prompts.js";
 import inboxRoutes from "./routes/inbox.js";
 import collectRoutes from "./routes/collect.js";
+import collectorConfigRoutes from "./routes/collectorConfig.js";
+import monitorRoutes from "./routes/monitors.js";
 import { db } from "./config/db.js";
 import { users, settings } from "../shared/schema.js";
 import { eq } from "drizzle-orm";
 import { startQueue } from "./services/queueService.js";
 import { seedMockData } from "./services/seeder.js";
+import { startMonitorService } from "./services/monitorService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -30,8 +33,6 @@ app.use(sessionMiddleware);
 app.use(requestLogger);
 
 // ─── Auto-guest session ───────────────────────────────────────────────────────
-// Inject a guest session so the app works without login.
-// Guest user is bootstrapped at startup; ID is cached in memory.
 let guestUserId: number | null = null;
 
 async function bootstrapGuestUser() {
@@ -81,6 +82,8 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/prompts", promptRoutes);
 app.use("/api/inbox", inboxRoutes);
 app.use("/api/collect", collectRoutes);
+app.use("/api/collector-config", collectorConfigRoutes);
+app.use("/api/monitors", monitorRoutes);
 
 // ─── Health / info ────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
@@ -112,6 +115,7 @@ app.listen(PORT, "0.0.0.0", async () => {
     await seedMockData(guestUserId);
     startQueue(guestUserId);
   }
+  startMonitorService();
 });
 
 declare module "express-session" {

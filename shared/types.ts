@@ -33,6 +33,36 @@ export interface CollectedItemRow {
   analysis: (ItemAnalysisResult & { processedAt: string; id: number }) | null;
 }
 
+// ── Monitors ──────────────────────────────────────────────────────────────────
+
+export type MonitorStatus = "active" | "paused" | "stopped";
+
+export interface MonitorRow {
+  id: number;
+  userId: number;
+  name: string;
+  topic: string;
+  source: string;
+  sourceConfig: Record<string, string>;
+  status: MonitorStatus;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Collector Configs ─────────────────────────────────────────────────────────
+
+export interface CollectorConfigRow {
+  id: number;
+  userId: number;
+  collectorId: string;
+  apiKey: string | null;
+  extraConfig: Record<string, string>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── AI Message ────────────────────────────────────────────────────────────────
 export interface AIMessage {
   role: "system" | "user" | "assistant";
