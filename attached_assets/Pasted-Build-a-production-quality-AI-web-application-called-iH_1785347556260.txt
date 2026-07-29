@@ -1,0 +1,21 @@
+Build a production-quality AI web application called **iHeal AI**. The goal is to create a modern, enterprise-grade AI assistant platform that is ready to integrate with Google Gemini later. Do not implement Gemini yet. Instead, design the architecture so an LLM can be plugged in by simply adding an API key.
+
+The application should include a polished landing page, responsive layout, authentication screens (frontend only), a modern chat interface, conversation history, settings page, profile page, and an admin dashboard. Use a clean medical-inspired design with a professional enterprise feel while keeping the architecture generic enough to support multiple industries in the future.
+
+The AI chat interface should feel like ChatGPT or Gemini. Include a sidebar for previous conversations, a message composer with attachment placeholders, typing indicators, markdown rendering, code blocks, copy buttons, regenerate response button, stop generation button, clear chat option, conversation search, and a settings panel where the future Gemini API key and model can be configured.
+
+Create a modular AI service layer. All AI requests should pass through a single service file with placeholder functions such as `generateResponse()`, `summarizeText()`, `analyzeContent()`, and `classifyIntent()`. Clearly comment where the Google Gemini SDK and API calls will be connected later. No hardcoded API keys or temporary implementations.
+
+Design the backend with clean separation between routes, controllers, services, utilities, and configuration files. The application should compile successfully with placeholder implementations and no runtime errors.
+
+Create a dashboard showing how the platform could evolve into an AI operations system. Include placeholder cards for Conversations, Knowledge Sources, Integrations, Analytics, AI Usage, Prompt Library, Team Members, Activity Logs, and API Status. Populate these with realistic sample data.
+
+Prepare an Integrations page showing future connectors for Google Gemini, OpenAI, Anthropic Claude, Email, Slack, Discord, Microsoft Teams, Reddit, RSS Feeds, CRM systems, and webhooks. These should be visually complete but marked as "Coming Soon" or "Not Connected."
+
+Do not build internet-wide monitoring, scraping, automated posting, or social media automation at this stage. Instead, create an "Intelligence Sources" section explaining that supported data sources and platform integrations will be added after business and legal requirements are defined.
+
+Leave clear extension points so future modules can be added for content discovery, AI-assisted response drafting, workflow automation, and analytics without restructuring the application.
+
+Work incrementally. After each completed milestone, verify the application builds successfully, fix any errors, commit the changes to Git with a descriptive message, and push to GitHub if configured. The application should always remain in a working state so progress is never lost if the AI session ends.
+
+The objective of this version is to present a polished, investor-quality AI platform that demonstrates architecture, user experience, and extensibility. After this prototype is complete, we will decide which external platforms, APIs, and automation features should be implemented based on technical feasibility and legal compliance.
