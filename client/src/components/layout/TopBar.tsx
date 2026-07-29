@@ -9,10 +9,10 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
   const [location] = useLocation();
 
   return (
-    <header className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-3 gap-3 shrink-0">
+    <header className="h-12 bg-white border-b border-gray-200 flex items-center px-3 gap-3 shrink-0">
       <button
         onClick={onMenuClick}
-        className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
       >
         <Menu size={18} />
       </button>
@@ -23,8 +23,8 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
         <button
           className={`p-1.5 rounded-lg transition-colors ${
             location === "/settings"
-              ? "text-brand-400 bg-brand-950"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"
+              ? "text-brand-600 bg-brand-50"
+              : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
           }`}
           title="Settings"
         >

@@ -45,19 +45,19 @@ export default function Profile() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-950">
+    <div className="h-full overflow-y-auto bg-white">
       <div className="max-w-xl mx-auto px-6 py-6 space-y-5">
-        <h2 className="text-xl font-bold text-gray-100">Profile</h2>
+        <h2 className="text-xl font-bold text-gray-900">Profile</h2>
 
         {/* Avatar card */}
         <div className="card flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-brand-900 border border-brand-700 flex items-center justify-center text-xl font-bold text-brand-400 shrink-0">
+          <div className="w-14 h-14 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-center text-xl font-bold text-brand-600 shrink-0">
             {initials(user?.name ?? "?")}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-100">{user?.name}</p>
+            <p className="font-semibold text-gray-900">{user?.name}</p>
             <p className="text-sm text-gray-500">{user?.email}</p>
-            <span className="badge bg-gray-800 text-gray-400 border border-gray-700 mt-1">
+            <span className="badge bg-gray-100 text-gray-600 border border-gray-200 mt-1">
               <Shield size={10} /> {user?.role}
             </span>
           </div>
@@ -71,7 +71,7 @@ export default function Profile() {
 
         {/* Edit profile */}
         <div className="card space-y-4">
-          <h3 className="font-semibold text-gray-200 flex items-center gap-2 text-sm">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2 text-sm">
             <User size={15} className="text-brand-400" /> Personal Information
           </h3>
 
@@ -109,7 +109,7 @@ export default function Profile() {
 
         {/* Change password */}
         <div className="card space-y-4">
-          <h3 className="font-semibold text-gray-200 flex items-center gap-2 text-sm">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2 text-sm">
             <Shield size={15} className="text-brand-400" /> Change Password
           </h3>
 

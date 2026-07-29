@@ -26,10 +26,10 @@ interface ConversationStub {
 function TypingIndicator() {
   return (
     <div className="flex items-end gap-3 px-4 py-2">
-      <div className="w-7 h-7 rounded-full bg-brand-900 border border-brand-700 flex items-center justify-center shrink-0">
-        <Cpu size={13} className="text-brand-400" />
+      <div className="w-7 h-7 rounded-full bg-brand-50 border border-brand-200 flex items-center justify-center shrink-0">
+        <Cpu size={13} className="text-brand-600" />
       </div>
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl rounded-bl-sm px-4 py-3">
+      <div className="bg-gray-100 border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3">
         <span className="typing-dot" />
         <span className="typing-dot" />
         <span className="typing-dot" />
@@ -46,14 +46,14 @@ function CodeBlock({ language, children }: { language?: string; children: string
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <div className="relative my-3 rounded-xl overflow-hidden border border-gray-700">
-      <div className="flex items-center justify-between px-4 py-1.5 bg-gray-800 text-xs text-gray-400">
+    <div className="relative my-3 rounded-xl overflow-hidden border border-gray-200">
+      <div className="flex items-center justify-between px-4 py-1.5 bg-gray-100 text-xs text-gray-500">
         <span className="font-mono">{language ?? "code"}</span>
-        <button onClick={copy} className="flex items-center gap-1 hover:text-white transition-colors">
+        <button onClick={copy} className="flex items-center gap-1 hover:text-gray-900 transition-colors">
           {copied ? <><Check size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
         </button>
       </div>
-      <pre className="p-4 overflow-x-auto text-sm text-gray-100 font-mono bg-gray-950">
+      <pre className="p-4 overflow-x-auto text-sm text-gray-800 font-mono bg-gray-50">
         <code>{children}</code>
       </pre>
     </div>
@@ -74,7 +74,7 @@ function MessageBubble({ msg, onRegenerate }: { msg: MessageRow; onRegenerate?: 
     <div className={cn("group flex items-end gap-3 px-4 py-1.5", isUser ? "flex-row-reverse" : "flex-row")}>
       <div className={cn(
         "w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold",
-        isUser ? "bg-brand-600 text-white" : "bg-gray-800 border border-gray-700 text-brand-400"
+        isUser ? "bg-brand-600 text-white" : "bg-gray-100 border border-gray-200 text-brand-600"
       )}>
         {isUser ? "U" : <Cpu size={13} />}
       </div>
@@ -84,7 +84,7 @@ function MessageBubble({ msg, onRegenerate }: { msg: MessageRow; onRegenerate?: 
           "px-4 py-3 rounded-2xl text-sm leading-relaxed",
           isUser
             ? "bg-brand-600 text-white rounded-br-sm"
-            : "bg-gray-900 border border-gray-700/60 text-gray-100 rounded-bl-sm"
+            : "bg-gray-50 border border-gray-200 text-gray-800 rounded-bl-sm"
         )}>
           {isUser ? (
             <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -114,15 +114,15 @@ function MessageBubble({ msg, onRegenerate }: { msg: MessageRow; onRegenerate?: 
           "flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity",
           isUser ? "flex-row-reverse" : "flex-row"
         )}>
-          <span className="text-xs text-gray-600">{timeAgo(msg.createdAt)}</span>
+          <span className="text-xs text-gray-400">{timeAgo(msg.createdAt)}</span>
           {msg.metadata?.model && (
-            <span className="text-xs text-gray-600">· {msg.metadata.model}</span>
+            <span className="text-xs text-gray-400">· {msg.metadata.model}</span>
           )}
-          <button onClick={copy} className="p-1 rounded text-gray-600 hover:text-gray-400 transition-colors" title="Copy">
-            {copied ? <Check size={12} className="text-brand-400" /> : <Copy size={12} />}
+          <button onClick={copy} className="p-1 rounded text-gray-400 hover:text-gray-600 transition-colors" title="Copy">
+            {copied ? <Check size={12} className="text-brand-500" /> : <Copy size={12} />}
           </button>
           {!isUser && onRegenerate && (
-            <button onClick={onRegenerate} className="p-1 rounded text-gray-600 hover:text-gray-400 transition-colors" title="Regenerate">
+            <button onClick={onRegenerate} className="p-1 rounded text-gray-400 hover:text-gray-600 transition-colors" title="Regenerate">
               <RotateCcw size={12} />
             </button>
           )}
@@ -136,10 +136,10 @@ function MessageBubble({ msg, onRegenerate }: { msg: MessageRow; onRegenerate?: 
 function StreamingBubble({ content }: { content: string }) {
   return (
     <div className="flex items-end gap-3 px-4 py-1.5">
-      <div className="w-7 h-7 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
-        <Cpu size={13} className="text-brand-400" />
+      <div className="w-7 h-7 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+        <Cpu size={13} className="text-brand-600" />
       </div>
-      <div className="max-w-2xl bg-gray-900 border border-brand-700/40 rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-gray-100 leading-relaxed">
+      <div className="max-w-2xl bg-gray-50 border border-brand-200 rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-gray-800 leading-relaxed">
         {content.length === 0 ? (
           <span className="inline-block w-0.5 h-4 bg-brand-400 animate-pulse" />
         ) : (
@@ -168,7 +168,7 @@ function ModelSelector({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
+      className="bg-white border border-gray-300 text-gray-700 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
     >
       {models.map((m) => (
         <option key={m.id} value={m.id}>
@@ -194,13 +194,13 @@ function SystemPromptPanel({
   const [draft, setDraft] = useState(currentContent);
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-4 z-20">
+    <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-20">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
-          <BookOpen size={14} className="text-brand-400" />
+        <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <BookOpen size={14} className="text-brand-600" />
           System Prompt
         </h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
           <X size={16} />
         </button>
       </div>
@@ -211,7 +211,7 @@ function SystemPromptPanel({
             <button
               key={p.id}
               onClick={() => setDraft(p.content)}
-              className="px-2 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 transition-colors"
+              className="px-2 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-xs text-gray-700 transition-colors"
             >
               {p.name}
             </button>
@@ -224,7 +224,7 @@ function SystemPromptPanel({
         onChange={(e) => setDraft(e.target.value)}
         rows={4}
         placeholder="You are a helpful AI assistant…"
-        className="w-full bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none font-mono"
+        className="w-full bg-white border border-gray-300 rounded-lg text-sm text-gray-800 placeholder-gray-400 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none font-mono"
       />
       <div className="flex justify-end gap-2 mt-2">
         <button onClick={onClose} className="btn-ghost text-xs py-1.5 px-3">Cancel</button>
@@ -466,10 +466,10 @@ export default function Chat() {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex flex-col bg-gray-950">
+    <div className="h-full flex flex-col bg-white">
       {/* Toolbar */}
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-2.5 flex items-center gap-3 shrink-0">
-        <h2 className="text-sm font-semibold text-gray-200 flex-1 truncate min-w-0">
+      <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0">
+        <h2 className="text-sm font-semibold text-gray-800 flex-1 truncate min-w-0">
           {conversation?.title ?? (convId ? "Loading…" : "New Conversation")}
         </h2>
 
@@ -485,8 +485,8 @@ export default function Chat() {
           className={cn(
             "p-1.5 rounded-lg transition-colors",
             systemPrompt
-              ? "bg-brand-900 text-brand-400 border border-brand-700"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"
+              ? "bg-brand-50 text-brand-600 border border-brand-200"
+              : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
           )}
         >
           <Settings2 size={16} />
@@ -497,7 +497,7 @@ export default function Chat() {
           <>
             <button
               onClick={() => { if (confirm("Clear all messages?")) clearConv.mutate(); }}
-              className="btn-ghost text-xs py-1.5 px-2.5 text-gray-500 hover:text-gray-300"
+              className="btn-ghost text-xs py-1.5 px-2.5 text-gray-400 hover:text-gray-600"
               title="Clear conversation"
             >
               <PenLine size={14} />
@@ -521,17 +521,17 @@ export default function Chat() {
       >
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="w-8 h-8 border-4 border-gray-700 border-t-brand-500 rounded-full animate-spin" />
+            <div className="w-8 h-8 border-4 border-gray-200 border-t-brand-500 rounded-full animate-spin" />
           </div>
         ) : !hasMessages ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-6">
-            <div className="w-14 h-14 rounded-2xl bg-gray-900 border border-gray-700 flex items-center justify-center mb-4">
+            <div className="w-14 h-14 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mb-4">
               <Cpu size={28} className="text-brand-500" />
             </div>
-            <h2 className="text-lg font-semibold text-gray-200 mb-2">
+            <h2 className="text-lg font-semibold text-gray-700 mb-2">
               {convId ? "Start the conversation" : "iHeal AI"}
             </h2>
-            <p className="text-gray-500 text-sm max-w-sm mb-1">
+            <p className="text-gray-400 text-sm max-w-sm mb-1">
               {convId
                 ? "Send a message to begin. The AI will respond using the selected provider."
                 : "Select a conversation from the sidebar or start a new one."}
@@ -580,7 +580,7 @@ export default function Chat() {
         {showScrollBtn && (
           <button
             onClick={scrollToBottom}
-            className="fixed bottom-32 right-6 p-2 bg-gray-800 border border-gray-600 rounded-full shadow-xl text-gray-400 hover:text-white transition-all"
+            className="fixed bottom-32 right-6 p-2 bg-white border border-gray-300 rounded-full shadow-lg text-gray-500 hover:text-gray-900 transition-all"
           >
             <ChevronDown size={18} />
           </button>
@@ -588,7 +588,7 @@ export default function Chat() {
       </div>
 
       {/* Input area */}
-      <div className="bg-gray-900 border-t border-gray-800 px-4 py-3 shrink-0">
+      <div className="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
         <div className="max-w-3xl mx-auto relative">
           {/* System prompt panel (floats above input) */}
           {showSystemPrompt && (
@@ -600,9 +600,9 @@ export default function Chat() {
             />
           )}
 
-          <div className="flex items-end gap-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 focus-within:ring-1 focus-within:ring-brand-500 transition">
+          <div className="flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 focus-within:ring-1 focus-within:ring-brand-500 transition">
             <button
-              className="p-1.5 text-gray-600 hover:text-gray-400 transition-colors shrink-0 mb-0.5"
+              className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors shrink-0 mb-0.5"
               title="Attach file (coming soon)"
             >
               <Paperclip size={17} />
@@ -616,7 +616,7 @@ export default function Chat() {
               rows={1}
               disabled={isStreaming}
               placeholder={isStreaming ? "AI is responding…" : "Message iHeal AI (Shift+Enter for new line)"}
-              className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 resize-none focus:outline-none min-h-[28px] max-h-40 py-1"
+              className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 resize-none focus:outline-none min-h-[28px] max-h-40 py-1"
             />
 
             <div className="flex items-center gap-1 shrink-0 mb-0.5">
@@ -642,14 +642,14 @@ export default function Chat() {
           </div>
 
           <div className="flex items-center justify-between mt-1.5 px-1">
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-gray-400">
               {systemPrompt ? (
                 <span className="text-brand-600">System prompt active</span>
               ) : (
                 <span>No system prompt</span>
               )}
             </p>
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-gray-400">
               {selectedModel}
             </p>
           </div>
