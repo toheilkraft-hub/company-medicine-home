@@ -1,13 +1,6 @@
 /**
  * AI Service — the single orchestration layer between the HTTP handlers and
  * the provider implementations.
- *
- * All AI calls go through this file. It handles:
- *  - Provider selection via ProviderFactory
- *  - Conversation history formatting
- *  - System prompt injection
- *  - Error mapping → AppError
- *  - Token / latency logging
  */
 
 import { db } from "../config/db.js";
@@ -32,9 +25,17 @@ export async function getProviderConfig(userId: number): Promise<ProviderConfig>
     where: eq(settings.userId, userId),
   });
 
+  const provider = (userSettings?.provider as ProviderID) ?? "mock";
+
+  // Pick the correct API key for the active provider
+  let apiKey: string | undefined;
+  if (provider === "gemini") apiKey = userSettings?.geminiApiKey ?? undefined;
+  else if (provider === "openai") apiKey = userSettings?.openaiApiKey ?? undefined;
+  else if (provider === "anthropic") apiKey = userSettings?.anthropicApiKey ?? undefined;
+
   return {
-    provider: (userSettings?.provider as ProviderID) ?? "mock",
-    apiKey: userSettings?.geminiApiKey ?? undefined,
+    provider,
+    apiKey,
     defaultModel: userSettings?.defaultModel ?? undefined,
   };
 }
@@ -125,24 +126,17 @@ export async function* generateStream(
 
 // ── Utility functions ─────────────────────────────────────────────────────────
 
-export async function summarizeText(
-  userId: number,
-  text: string
-): Promise<string> {
+export async function summarizeText(userId: number, text: string): Promise<string> {
   const config = await getProviderConfig(userId);
   const provider = ProviderFactory.create(config);
   try {
     return await provider.summarize(text);
   } catch {
-    // fallback to truncation
     return text.slice(0, 80).trim() + (text.length > 80 ? "…" : "");
   }
 }
 
-export async function classifyIntent(
-  userId: number,
-  message: string
-): Promise<string> {
+export async function classifyIntent(userId: number, message: string): Promise<string> {
   const config = await getProviderConfig(userId);
   const provider = ProviderFactory.create(config);
   try {

@@ -1,12 +1,5 @@
 /**
- * OpenAIProvider — OpenAI GPT integration stub.
- *
- * ── HOW TO ACTIVATE ──────────────────────────────────────────────────────────
- *  1. Install:   npm install openai
- *  2. Uncomment the SDK import and implementation below.
- *  3. Register in ProviderFactory.ts (already listed).
- *  4. Set provider = "openai" and API key in Settings.
- * ─────────────────────────────────────────────────────────────────────────────
+ * OpenAIProvider — OpenAI GPT integration (fully implemented).
  */
 
 import type { IProvider } from "./IProvider.js";
@@ -17,41 +10,19 @@ import type {
   ItemAnalysisResult,
   ModelInfo,
 } from "../../shared/types.js";
-
-// import OpenAI from "openai"; // TODO: npm install openai
-
-const OPENAI_MODELS: ModelInfo[] = [
-  {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    description: "Most capable OpenAI model",
-    maxTokens: 128000,
-    supportsStreaming: true,
-    provider: "openai",
-  },
-  {
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    description: "Fast and affordable",
-    maxTokens: 128000,
-    supportsStreaming: true,
-    provider: "openai",
-  },
-  {
-    id: "gpt-3.5-turbo",
-    name: "GPT-3.5 Turbo",
-    description: "Legacy model, cost-effective",
-    maxTokens: 16385,
-    supportsStreaming: true,
-    provider: "openai",
-  },
-];
+import OpenAI from "openai";
 
 export class OpenAIProvider implements IProvider {
   readonly id = "openai";
   readonly name = "OpenAI";
 
-  constructor(private apiKey: string) {}
+  private apiKey: string;
+  private client: OpenAI;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+    this.client = new OpenAI({ apiKey });
+  }
 
   isConfigured(): boolean {
     return !!this.apiKey && this.apiKey.startsWith("sk-");
@@ -62,25 +33,36 @@ export class OpenAIProvider implements IProvider {
     options: GenerateOptions = {}
   ): Promise<AIResponse> {
     this.assertConfigured();
-    // TODO: uncomment when `openai` package is installed
-    // const client = new OpenAI({ apiKey: this.apiKey });
-    // const completion = await client.chat.completions.create({
-    //   model: options.model ?? "gpt-4o",
-    //   messages: messages.map(m => ({ role: m.role, content: m.content })),
-    //   temperature: options.temperature ?? 0.7,
-    //   max_tokens: options.maxTokens ?? 2048,
-    // });
-    // const choice = completion.choices[0];
-    // return {
-    //   content: choice.message.content ?? "",
-    //   model: options.model ?? "gpt-4o",
-    //   provider: "openai",
-    //   tokensUsed: completion.usage?.total_tokens,
-    //   promptTokens: completion.usage?.prompt_tokens,
-    //   completionTokens: completion.usage?.completion_tokens,
-    //   finishReason: choice.finish_reason ?? "stop",
-    // };
-    throw new Error("OpenAIProvider: uncomment implementation in server/providers/OpenAIProvider.ts");
+    const start = Date.now();
+
+    const modelId = options.model ?? "gpt-4o";
+    const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = messages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
+
+    if (options.systemPrompt) {
+      oaiMessages.unshift({ role: "system", content: options.systemPrompt });
+    }
+
+    const completion = await this.client.chat.completions.create({
+      model: modelId,
+      messages: oaiMessages,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 2048,
+    });
+
+    const choice = completion.choices[0];
+    return {
+      content: choice.message.content ?? "",
+      model: modelId,
+      provider: "openai",
+      tokensUsed: completion.usage?.total_tokens,
+      promptTokens: completion.usage?.prompt_tokens,
+      completionTokens: completion.usage?.completion_tokens,
+      latencyMs: Date.now() - start,
+      finishReason: choice.finish_reason ?? "stop",
+    };
   }
 
   async *generateStream(
@@ -88,22 +70,38 @@ export class OpenAIProvider implements IProvider {
     options: GenerateOptions = {}
   ): AsyncGenerator<string, AIResponse, unknown> {
     this.assertConfigured();
-    // TODO: streaming implementation
-    // const client = new OpenAI({ apiKey: this.apiKey });
-    // const stream = await client.chat.completions.create({
-    //   model: options.model ?? "gpt-4o",
-    //   messages: messages.map(m => ({ role: m.role, content: m.content })),
-    //   stream: true,
-    // });
-    // let full = "";
-    // for await (const chunk of stream) {
-    //   const delta = chunk.choices[0]?.delta?.content ?? "";
-    //   full += delta;
-    //   yield delta;
-    // }
-    // return { content: full, model: options.model ?? "gpt-4o", provider: "openai", finishReason: "stop" };
-    throw new Error("OpenAIProvider: streaming not yet implemented");
-    return {} as AIResponse;
+
+    const modelId = options.model ?? "gpt-4o";
+    const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = messages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
+
+    if (options.systemPrompt) {
+      oaiMessages.unshift({ role: "system", content: options.systemPrompt });
+    }
+
+    const stream = await this.client.chat.completions.create({
+      model: modelId,
+      messages: oaiMessages,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 2048,
+      stream: true,
+    });
+
+    let full = "";
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content ?? "";
+      full += delta;
+      yield delta;
+    }
+
+    return {
+      content: full,
+      model: modelId,
+      provider: "openai",
+      finishReason: "stop",
+    };
   }
 
   async summarize(text: string, options: GenerateOptions = {}): Promise<string> {
@@ -122,8 +120,36 @@ export class OpenAIProvider implements IProvider {
     return r.content.trim().toLowerCase();
   }
 
+  /**
+   * Fetch live model list from OpenAI API, filtered to chat-capable models.
+   */
   async listModels(): Promise<ModelInfo[]> {
-    return OPENAI_MODELS;
+    try {
+      const response = await this.client.models.list();
+      const chatModels = response.data
+        .filter((m) => m.id.startsWith("gpt-") || m.id.startsWith("o1") || m.id.startsWith("o3"))
+        .sort((a, b) => b.created - a.created)
+        .map((m) => ({
+          id: m.id,
+          name: m.id,
+          description: "",
+          maxTokens: m.id.includes("32k") ? 32768 : m.id.includes("128k") || m.id.includes("4o") ? 128000 : 16385,
+          supportsStreaming: true,
+          provider: "openai" as const,
+        }));
+      return chatModels.length > 0 ? chatModels : this.staticModels();
+    } catch {
+      return this.staticModels();
+    }
+  }
+
+  private staticModels(): ModelInfo[] {
+    return [
+      { id: "gpt-4o", name: "GPT-4o", description: "Most capable, multimodal", maxTokens: 128000, supportsStreaming: true, provider: "openai" },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Fast and affordable", maxTokens: 128000, supportsStreaming: true, provider: "openai" },
+      { id: "gpt-4-turbo", name: "GPT-4 Turbo", description: "High intelligence, large context", maxTokens: 128000, supportsStreaming: true, provider: "openai" },
+      { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", description: "Cost-effective", maxTokens: 16385, supportsStreaming: true, provider: "openai" },
+    ];
   }
 
   async analyzeContent(item: {
@@ -131,11 +157,26 @@ export class OpenAIProvider implements IProvider {
     content: string;
     source: string;
   }): Promise<ItemAnalysisResult> {
-    // TODO: OpenAI — structured JSON prompt via function calling or response_format
-    throw new Error("OpenAIProvider.analyzeContent: not yet implemented");
+    const prompt = `Analyse the following intelligence item and return a JSON object with exactly these fields:
+  summary (string, ≤50 words), intent (string), industry (string),
+  category (string), sentiment ("Positive"|"Negative"|"Neutral"|"Mixed"),
+  priorityScore (1-100 integer), confidenceScore (1-100 integer),
+  suggestedReply (string, professional reply ≤200 words)
+
+Source: ${item.source}
+Title: ${item.title}
+Content: ${item.content}
+
+Return only valid JSON, no markdown fences.`;
+
+    const response = await this.generateResponse(
+      [{ role: "user", content: prompt }],
+      { maxTokens: 500, temperature: 0.2 }
+    );
+    return JSON.parse(response.content) as ItemAnalysisResult;
   }
 
   private assertConfigured() {
-    if (!this.isConfigured()) throw new Error("OpenAIProvider: invalid or missing API key");
+    if (!this.isConfigured()) throw new Error("OpenAIProvider: invalid or missing API key (must start with sk-)");
   }
 }

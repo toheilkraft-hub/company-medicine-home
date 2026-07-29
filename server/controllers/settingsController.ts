@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { ok, asyncHandler } from "../utils/helpers.js";
 import { ProviderFactory } from "../providers/ProviderFactory.js";
 import type { ProviderConfig, ProviderID } from "../../shared/types.js";
+import { GeminiProvider } from "../providers/GeminiProvider.js";
+import { OpenAIProvider } from "../providers/OpenAIProvider.js";
 
 function maskKey(key: string | null | undefined): string | null {
   if (!key) return null;
@@ -99,4 +101,33 @@ export const updateSettings = asyncHandler(async (req: Request, res: Response) =
   }
 
   return ok(res, { settings: safeRow(updated) });
+});
+
+/**
+ * POST /api/settings/models
+ * Body: { provider: "gemini"|"openai", apiKey: string }
+ * Fetches the real model list from the provider's API.
+ */
+export const fetchModels = asyncHandler(async (req: Request, res: Response) => {
+  const { provider, apiKey } = req.body as { provider: string; apiKey?: string };
+
+  if (!apiKey || apiKey.startsWith("••••")) {
+    return ok(res, { models: [] });
+  }
+
+  try {
+    let models;
+    if (provider === "gemini") {
+      const p = new GeminiProvider(apiKey);
+      models = await p.listModels();
+    } else if (provider === "openai") {
+      const p = new OpenAIProvider(apiKey);
+      models = await p.listModels();
+    } else {
+      models = [];
+    }
+    return ok(res, { models });
+  } catch (err: any) {
+    return ok(res, { models: [], error: err?.message ?? "Failed to fetch models" });
+  }
 });
