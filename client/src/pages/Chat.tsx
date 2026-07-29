@@ -247,7 +247,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [selectedModel, setSelectedModel] = useState("mock-standard");
+  const [selectedModel, setSelectedModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -258,11 +258,30 @@ export default function Chat() {
   const convId = params.id ? parseInt(params.id, 10) : null;
 
   // ── Data fetching ────────────────────────────────────────────────────────────
-  const { data: models = [] } = useQuery<ModelInfo[]>({
-    queryKey: ["models"],
-    queryFn: () => apiFetch<ModelInfo[]>("/api/chat/models"),
-    staleTime: Infinity,
+
+  // Load user settings to get the active provider + defaultModel
+  const { data: settingsData } = useQuery<{ settings: { provider: string; defaultModel: string } }>({
+    queryKey: ["settings"],
+    queryFn: () => apiFetch("/api/settings"),
+    staleTime: 30_000,
   });
+
+  const activeProvider = settingsData?.settings?.provider ?? "mock";
+
+  // Fetch models for the active provider — re-fetches when provider changes
+  const { data: models = [] } = useQuery<ModelInfo[]>({
+    queryKey: ["models", activeProvider],
+    queryFn: () => apiFetch<ModelInfo[]>("/api/chat/models"),
+    staleTime: 60_000,
+  });
+
+  // Initialise selectedModel from saved settings (once loaded), unless a
+  // conversation already has its own model set (handled in the conv useEffect)
+  useEffect(() => {
+    if (!convId && settingsData?.settings?.defaultModel) {
+      setSelectedModel(settingsData.settings.defaultModel);
+    }
+  }, [settingsData?.settings?.defaultModel, convId]);
 
   const { data: systemPrompts = [] } = useQuery<SystemPrompt[]>({
     queryKey: ["system-prompts"],
