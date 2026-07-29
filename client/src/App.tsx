@@ -16,58 +16,27 @@ function Spinner() {
   );
 }
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  if (loading) return <Spinner />;
-  if (!user) return <Redirect to="/login" />;
-  return <>{children}</>;
-}
-
-function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  if (loading) return <Spinner />;
-  if (user) return <Redirect to="/chat" />;
-  return <>{children}</>;
-}
-
 function Routes() {
   return (
     <Switch>
-      {/* Root → chat (authenticated) or login */}
       <Route path="/">
-        <PublicOnlyRoute><Login /></PublicOnlyRoute>
+        <Redirect to="/chat" />
       </Route>
 
-      <Route path="/login">
-        <PublicOnlyRoute><Login /></PublicOnlyRoute>
-      </Route>
-      <Route path="/register">
-        <PublicOnlyRoute><Register /></PublicOnlyRoute>
-      </Route>
-
-      {/* App routes — all require auth */}
       <Route path="/chat">
-        <PrivateRoute>
-          <AppShell><Chat /></AppShell>
-        </PrivateRoute>
+        <AppShell><Chat /></AppShell>
       </Route>
       <Route path="/chat/:id">
-        <PrivateRoute>
-          <AppShell><Chat /></AppShell>
-        </PrivateRoute>
+        <AppShell><Chat /></AppShell>
       </Route>
       <Route path="/settings">
-        <PrivateRoute>
-          <AppShell><Settings /></AppShell>
-        </PrivateRoute>
+        <AppShell><Settings /></AppShell>
       </Route>
       <Route path="/profile">
-        <PrivateRoute>
-          <AppShell><Profile /></AppShell>
-        </PrivateRoute>
+        <AppShell><Profile /></AppShell>
       </Route>
 
-      <Route><Redirect to="/" /></Route>
+      <Route><Redirect to="/chat" /></Route>
     </Switch>
   );
 }
