@@ -9,7 +9,7 @@
  * The rest of the application never imports a concrete provider directly.
  */
 
-import type { AIMessage, AIResponse, GenerateOptions, ModelInfo } from "../../shared/types.js";
+import type { AIMessage, AIResponse, GenerateOptions, ItemAnalysisResult, ModelInfo } from "../../shared/types.js";
 
 export interface IProvider {
   /** Unique identifier, e.g. "gemini", "openai", "mock" */
@@ -59,4 +59,17 @@ export interface IProvider {
    * Return the list of models this provider supports.
    */
   listModels(): Promise<ModelInfo[]>;
+
+  /**
+   * Analyse a collected intelligence item and return structured output.
+   * Called by intelService for each new item in the processing queue.
+   *
+   * TODO: GEMINI — implement with a structured JSON prompt so Gemini returns
+   * all fields directly, then parse and validate before returning.
+   */
+  analyzeContent(item: {
+    title: string;
+    content: string;
+    source: string;
+  }): Promise<ItemAnalysisResult>;
 }

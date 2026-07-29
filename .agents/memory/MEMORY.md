@@ -1,0 +1,1 @@
+- [DB driver fix](db-driver-fix.md) — neon-http driver fails on Replit's standard PostgreSQL; must use drizzle-orm/node-postgres with `pg` Pool instead.

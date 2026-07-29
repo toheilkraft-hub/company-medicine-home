@@ -1,0 +1,60 @@
+The current application is an AI chatbot. I now want to evolve it into an AI Intelligence Platform.
+
+Do not remove the existing AI architecture. Instead, change the workflow so the AI processes incoming content rather than waiting for users to chat with it.
+
+Create a modular data ingestion pipeline.
+
+First, build a Collection Service responsible for receiving content from external sources in the future. Do not connect to any external APIs yet. Instead, create a standard interface so future collectors (Reddit API, RSS feeds, webhooks, email, CRM integrations, and other approved sources) can all send data into the same pipeline.
+
+The Collection Service should accept a post with fields such as title, content, source, URL, author, collected timestamp, tags, and status.
+
+Store every collected item in the database before any AI processing occurs.
+
+Create a Processing Queue that continuously looks for new records with a status of "New". Each item should be sent through the AI service layer where Gemini will later be connected.
+
+For now, use the existing mock AI provider to generate sample outputs.
+
+Each processed item should produce structured analysis including:
+
+* Summary
+* Intent
+* Industry
+* Category
+* Sentiment
+* Priority Score
+* Confidence Score
+* Suggested Professional Reply
+* Processing Timestamp
+
+Save this analysis back into the database rather than simply returning it to the interface.
+
+Replace the chatbot homepage with an Inbox dashboard similar to an email client.
+
+The Inbox should include:
+
+* New
+* Processing
+* Reviewed
+* Archived
+* All Items
+
+Selecting an item should display:
+
+* Original post
+* Source
+* Author
+* URL
+* Full content
+* AI analysis
+* Suggested reply
+* Confidence score
+* Status
+* Processing history
+
+Create a "Collectors" page showing future integrations such as Reddit API, RSS Feeds, Email, Webhooks, CRM systems, and other supported sources. These integrations should remain disabled and clearly marked as "Not Connected."
+
+Populate the system with realistic mock posts so the platform behaves like a working intelligence system even before external integrations are implemented.
+
+Keep the architecture modular so future collectors simply insert data into the Collection Service without requiring changes to the AI processing engine.
+
+After each completed milestone, verify the project builds successfully, fix all issues, commit to Git with a descriptive message, and push to GitHub if configured.

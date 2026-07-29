@@ -17,6 +17,7 @@ import type {
   AIMessage,
   AIResponse,
   GenerateOptions,
+  ItemAnalysisResult,
   ModelInfo,
 } from "../../shared/types.js";
 
@@ -197,6 +198,35 @@ Message: "${message}"`,
 
   async listModels(): Promise<ModelInfo[]> {
     return GEMINI_MODELS;
+  }
+
+  async analyzeContent(item: {
+    title: string;
+    content: string;
+    source: string;
+  }): Promise<ItemAnalysisResult> {
+    // TODO: GEMINI — replace this with a structured prompt:
+    //
+    // const prompt = `Analyse the following intelligence item and return a JSON object
+    // with exactly these fields:
+    //   summary (string, ≤50 words), intent (string), industry (string),
+    //   category (string), sentiment ("Positive"|"Negative"|"Neutral"|"Mixed"),
+    //   priorityScore (1-100 integer), confidenceScore (1-100 integer),
+    //   suggestedReply (string, professional reply ≤200 words)
+    //
+    // Source: ${item.source}
+    // Title: ${item.title}
+    // Content: ${item.content}`;
+    //
+    // const response = await this.generateResponse(
+    //   [{ role: "user", content: prompt }],
+    //   { maxTokens: 500, temperature: 0.2 }
+    // );
+    // return JSON.parse(response.content) as ItemAnalysisResult;
+
+    throw new Error(
+      "GeminiProvider.analyzeContent: add your API key in Settings to enable real AI analysis"
+    );
   }
 
   private assertConfigured() {

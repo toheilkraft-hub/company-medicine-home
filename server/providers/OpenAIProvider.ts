@@ -14,6 +14,7 @@ import type {
   AIMessage,
   AIResponse,
   GenerateOptions,
+  ItemAnalysisResult,
   ModelInfo,
 } from "../../shared/types.js";
 
@@ -123,6 +124,15 @@ export class OpenAIProvider implements IProvider {
 
   async listModels(): Promise<ModelInfo[]> {
     return OPENAI_MODELS;
+  }
+
+  async analyzeContent(item: {
+    title: string;
+    content: string;
+    source: string;
+  }): Promise<ItemAnalysisResult> {
+    // TODO: OpenAI — structured JSON prompt via function calling or response_format
+    throw new Error("OpenAIProvider.analyzeContent: not yet implemented");
   }
 
   private assertConfigured() {

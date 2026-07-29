@@ -11,7 +11,13 @@ import chatRoutes from "./routes/chat.js";
 import settingsRoutes from "./routes/settings.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import promptRoutes from "./routes/prompts.js";
-import { sql as neonSql } from "./config/db.js";
+import inboxRoutes from "./routes/inbox.js";
+import collectRoutes from "./routes/collect.js";
+import { db } from "./config/db.js";
+import { users, settings } from "../shared/schema.js";
+import { eq } from "drizzle-orm";
+import { startQueue } from "./services/queueService.js";
+import { seedMockData } from "./services/seeder.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -31,25 +37,24 @@ let guestUserId: number | null = null;
 async function bootstrapGuestUser() {
   try {
     const GUEST_EMAIL = "guest@iheal.local";
-    const existing = await neonSql`
-      SELECT id FROM users WHERE email = ${GUEST_EMAIL} LIMIT 1
-    `;
+    const existing = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, GUEST_EMAIL))
+      .limit(1);
     if (existing.length > 0) {
-      guestUserId = existing[0].id as number;
+      guestUserId = existing[0].id;
       logger.info("Guest user found", { id: guestUserId });
     } else {
-      const created = await neonSql`
-        INSERT INTO users (name, email, password, role)
-        VALUES ('Guest', ${GUEST_EMAIL}, 'guest-no-password', 'user')
-        RETURNING id
-      `;
-      guestUserId = created[0].id as number;
-      // Create default settings row
-      await neonSql`
-        INSERT INTO settings (user_id)
-        VALUES (${guestUserId})
-        ON CONFLICT (user_id) DO NOTHING
-      `;
+      const created = await db
+        .insert(users)
+        .values({ name: "Guest", email: GUEST_EMAIL, password: "guest-no-password", role: "user" })
+        .returning({ id: users.id });
+      guestUserId = created[0].id;
+      await db
+        .insert(settings)
+        .values({ userId: guestUserId })
+        .onConflictDoNothing();
       logger.info("Created guest user", { id: guestUserId });
     }
   } catch (err: any) {
@@ -74,6 +79,8 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/prompts", promptRoutes);
+app.use("/api/inbox", inboxRoutes);
+app.use("/api/collect", collectRoutes);
 
 // ─── Health / info ────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
@@ -101,6 +108,10 @@ app.use(errorHandler);
 app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`iHeal AI server listening on port ${PORT}`);
   await bootstrapGuestUser();
+  if (guestUserId !== null) {
+    await seedMockData(guestUserId);
+    startQueue(guestUserId);
+  }
 });
 
 declare module "express-session" {

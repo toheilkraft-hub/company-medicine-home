@@ -119,6 +119,54 @@ export const settingsRelations = relations(settings, ({ one }) => ({
   user: one(users, { fields: [settings.userId], references: [users.id] }),
 }));
 
+// ─── Collected Items ──────────────────────────────────────────────────────────
+export const collectedItems = pgTable("collected_items", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  content: text("content").notNull(),
+  source: varchar("source", { length: 100 }).notNull().default("manual"),
+  url: text("url"),
+  author: varchar("author", { length: 255 }),
+  collectedAt: timestamp("collected_at").defaultNow().notNull(),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  // Status: new | processing | reviewed | archived
+  status: varchar("status", { length: 50 }).notNull().default("new"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── Item Analysis ────────────────────────────────────────────────────────────
+export const itemAnalysis = pgTable("item_analysis", {
+  id: serial("id").primaryKey(),
+  itemId: integer("item_id")
+    .references(() => collectedItems.id, { onDelete: "cascade" })
+    .notNull()
+    .unique(),
+  summary: text("summary").notNull(),
+  intent: varchar("intent", { length: 100 }).notNull(),
+  industry: varchar("industry", { length: 100 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(),
+  sentiment: varchar("sentiment", { length: 50 }).notNull(),
+  priorityScore: integer("priority_score").notNull(),
+  confidenceScore: integer("confidence_score").notNull(),
+  suggestedReply: text("suggested_reply").notNull(),
+  processedAt: timestamp("processed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── Relations (intelligence) ─────────────────────────────────────────────────
+export const collectedItemsRelations = relations(collectedItems, ({ one }) => ({
+  user: one(users, { fields: [collectedItems.userId], references: [users.id] }),
+  analysis: one(itemAnalysis, { fields: [collectedItems.id], references: [itemAnalysis.itemId] }),
+}));
+
+export const itemAnalysisRelations = relations(itemAnalysis, ({ one }) => ({
+  item: one(collectedItems, { fields: [itemAnalysis.itemId], references: [collectedItems.id] }),
+}));
+
 // ─── TypeScript types ─────────────────────────────────────────────────────────
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;

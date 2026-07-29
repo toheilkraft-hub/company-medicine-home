@@ -1,10 +1,12 @@
 import { Switch, Route, Redirect } from "wouter";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { AuthProvider } from "./contexts/AuthContext";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Chat from "./pages/Chat";
 import Settings from "./pages/Settings";
 import Profile from "./pages/Profile";
+import Inbox from "./pages/Inbox";
+import Collectors from "./pages/Collectors";
 import AppShell from "./components/layout/AppShell";
 
 function Spinner() {
@@ -20,7 +22,11 @@ function Routes() {
   return (
     <Switch>
       <Route path="/">
-        <Redirect to="/chat" />
+        <Redirect to="/inbox" />
+      </Route>
+
+      <Route path="/inbox">
+        <AppShell><Inbox /></AppShell>
       </Route>
 
       <Route path="/chat">
@@ -29,6 +35,11 @@ function Routes() {
       <Route path="/chat/:id">
         <AppShell><Chat /></AppShell>
       </Route>
+
+      <Route path="/collectors">
+        <Collectors />
+      </Route>
+
       <Route path="/settings">
         <AppShell><Settings /></AppShell>
       </Route>
@@ -36,7 +47,7 @@ function Routes() {
         <AppShell><Profile /></AppShell>
       </Route>
 
-      <Route><Redirect to="/chat" /></Route>
+      <Route><Redirect to="/inbox" /></Route>
     </Switch>
   );
 }

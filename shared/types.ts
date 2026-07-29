@@ -2,6 +2,37 @@
 // Shared TypeScript types — used by both server and client
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Intelligence / Inbox ──────────────────────────────────────────────────────
+
+export interface ItemAnalysisResult {
+  summary: string;
+  intent: string;
+  industry: string;
+  category: string;
+  sentiment: string;
+  priorityScore: number;
+  confidenceScore: number;
+  suggestedReply: string;
+}
+
+export type ItemStatus = "new" | "processing" | "reviewed" | "archived";
+
+export interface CollectedItemRow {
+  id: number;
+  userId: number;
+  title: string;
+  content: string;
+  source: string;
+  url: string | null;
+  author: string | null;
+  collectedAt: string;
+  tags: string[];
+  status: ItemStatus;
+  createdAt: string;
+  updatedAt: string;
+  analysis: (ItemAnalysisResult & { processedAt: string; id: number }) | null;
+}
+
 // ── AI Message ────────────────────────────────────────────────────────────────
 export interface AIMessage {
   role: "system" | "user" | "assistant";
