@@ -18,9 +18,11 @@ export class OpenAIProvider implements IProvider {
 
   private apiKey: string;
   private client: OpenAI;
+  private defaultModel: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, defaultModel?: string) {
     this.apiKey = apiKey;
+    this.defaultModel = defaultModel ?? "gpt-4o";
     this.client = new OpenAI({ apiKey });
   }
 
@@ -35,7 +37,7 @@ export class OpenAIProvider implements IProvider {
     this.assertConfigured();
     const start = Date.now();
 
-    const modelId = options.model ?? "gpt-4o";
+    const modelId = options.model ?? this.defaultModel;
     const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = messages.map((m) => ({
       role: m.role as "user" | "assistant" | "system",
       content: m.content,
@@ -71,7 +73,7 @@ export class OpenAIProvider implements IProvider {
   ): AsyncGenerator<string, AIResponse, unknown> {
     this.assertConfigured();
 
-    const modelId = options.model ?? "gpt-4o";
+    const modelId = options.model ?? this.defaultModel;
     const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = messages.map((m) => ({
       role: m.role as "user" | "assistant" | "system",
       content: m.content,
@@ -171,7 +173,7 @@ Return only valid JSON, no markdown fences.`;
 
     const response = await this.generateResponse(
       [{ role: "user", content: prompt }],
-      { maxTokens: 500, temperature: 0.2 }
+      { model: this.defaultModel, maxTokens: 500, temperature: 0.2 }
     );
     return JSON.parse(response.content) as ItemAnalysisResult;
   }

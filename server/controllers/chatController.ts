@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { db } from "../config/db.js";
-import { conversations, messages, settings } from "../../shared/schema.js";
+import { conversations, messages, settings, collectedItems } from "../../shared/schema.js";
 import { eq, and, desc, ilike } from "drizzle-orm";
 import { ok, fail, asyncHandler } from "../utils/helpers.js";
 import {
@@ -39,13 +39,18 @@ export const createConversation = asyncHandler(async (req: Request, res: Respons
   const userId = req.session.userId!;
   const { title, model, provider, systemPromptId, systemPromptContent } = req.body;
 
+  // Fall back to user's saved settings if not explicitly provided
+  const userSettings = await db.query.settings.findFirst({
+    where: eq(settings.userId, userId),
+  });
+
   const [conv] = await db
     .insert(conversations)
     .values({
       userId,
       title: title ?? "New Conversation",
-      model: model ?? "mock-standard",
-      provider: provider ?? "mock",
+      model: model ?? userSettings?.defaultModel ?? "gemini-1.5-flash",
+      provider: provider ?? userSettings?.provider ?? "mock",
       systemPromptId: systemPromptId ?? null,
       systemPromptContent: systemPromptContent ?? null,
     })
@@ -104,7 +109,6 @@ export const clearConversation = asyncHandler(async (req: Request, res: Response
   const userId = req.session.userId!;
   const id = parseInt(req.params.id, 10);
 
-  // verify ownership
   const conv = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, id), eq(conversations.userId, userId)),
   });
@@ -113,6 +117,101 @@ export const clearConversation = asyncHandler(async (req: Request, res: Response
   await db.delete(messages).where(eq(messages.conversationId, id));
   return ok(res, { cleared: true });
 });
+
+// ─── Research intent detection ─────────────────────────────────────────────────
+
+const RESEARCH_KEYWORDS = [
+  "find", "search", "research", "look for", "look up", "discover",
+  "gather", "collect", "scan", "investigate", "explore", "fetch",
+  "what are", "list of", "show me", "tell me about", "report on",
+  "feed inbox", "add to inbox", "send to inbox", "track", "monitor for",
+  "analyze", "summarise", "summarize",
+];
+
+function isResearchRequest(message: string): boolean {
+  const lower = message.toLowerCase();
+  return RESEARCH_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// ─── Push AI findings to Intelligence Inbox ────────────────────────────────────
+
+interface InboxItem {
+  title: string;
+  content: string;
+  source: string;
+  url?: string;
+  tags?: string[];
+}
+
+async function pushFindingsToInbox(
+  userId: number,
+  userQuery: string,
+  aiResponseText: string,
+  model: string | undefined,
+  temperature: number,
+): Promise<InboxItem[]> {
+  const extractPrompt = `The user asked: "${userQuery}"
+
+Your previous response was:
+${aiResponseText.slice(0, 3000)}
+
+Now extract up to 6 discrete intelligence items from your response that are worth saving to the user's Intelligence Inbox.
+
+Return ONLY a valid JSON array (no markdown, no explanation) with this exact shape:
+[
+  {
+    "title": "Short descriptive title (max 80 chars)",
+    "content": "Key details and findings (max 400 chars)",
+    "source": "ai-research",
+    "url": "https://... or null if none mentioned",
+    "tags": ["tag1", "tag2"]
+  }
+]
+
+If there are no distinct factual items to extract, return an empty array: []`;
+
+  try {
+    const response = await generateResponse(userId, [{ role: "user", content: extractPrompt }], {
+      model,
+      temperature: 0.2,
+      maxTokens: 1200,
+    });
+
+    // Strip markdown fences if present
+    const raw = response.content.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    const items: InboxItem[] = JSON.parse(raw);
+    if (!Array.isArray(items)) return [];
+
+    // Insert each item into collected_items
+    const inserted: InboxItem[] = [];
+    for (const item of items.slice(0, 6)) {
+      if (!item.title?.trim() || !item.content?.trim()) continue;
+      await db.insert(collectedItems).values({
+        userId,
+        title: item.title.slice(0, 200),
+        content: item.content.slice(0, 2000),
+        source: "ai-research",
+        url: item.url && item.url !== "null" ? item.url : null,
+        author: "AI Chat",
+        tags: Array.isArray(item.tags) ? item.tags.slice(0, 5) : [],
+        status: "new",
+        collectedAt: new Date(),
+      });
+      inserted.push(item);
+    }
+
+    logger.info("Chat → Inbox: pushed findings", {
+      userId,
+      count: inserted.length,
+      query: userQuery.slice(0, 60),
+    });
+
+    return inserted;
+  } catch (err: any) {
+    logger.warn("Chat → Inbox: extraction failed", { err: err?.message });
+    return [];
+  }
+}
 
 // ─── Messages / Non-streaming send ────────────────────────────────────────────
 
@@ -128,13 +227,11 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
   });
   if (!conv) return fail(res, "Conversation not found", 404);
 
-  // Persist user message
   const [userMsg] = await db
     .insert(messages)
     .values({ conversationId: convId, role: "user", content })
     .returning();
 
-  // Load history (last 40 messages for context)
   const history = await db.query.messages.findMany({
     where: eq(messages.conversationId, convId),
     orderBy: [desc(messages.createdAt)],
@@ -145,7 +242,6 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
     content: m.content,
   }));
 
-  // Load user settings for model/temp override
   const userSettings = await db.query.settings.findFirst({
     where: eq(settings.userId, userId),
   });
@@ -173,18 +269,11 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
     })
     .returning();
 
-  // Auto-title after first exchange
   if (conv.title === "New Conversation") {
     const title = await summarizeText(userId, content);
-    await db
-      .update(conversations)
-      .set({ title, updatedAt: new Date() })
-      .where(eq(conversations.id, convId));
+    await db.update(conversations).set({ title, updatedAt: new Date() }).where(eq(conversations.id, convId));
   } else {
-    await db
-      .update(conversations)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, convId));
+    await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, convId));
   }
 
   return ok(res, { userMessage: userMsg, assistantMessage: assistantMsg });
@@ -204,13 +293,11 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
   });
   if (!conv) return fail(res, "Conversation not found", 404);
 
-  // Persist user message first
   const [userMsg] = await db
     .insert(messages)
     .values({ conversationId: convId, role: "user", content })
     .returning();
 
-  // Load history
   const history = await db.query.messages.findMany({
     where: eq(messages.conversationId, convId),
     orderBy: [desc(messages.createdAt)],
@@ -225,18 +312,17 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
     where: eq(settings.userId, userId),
   });
 
-  // Set up SSE headers
+  const activeModel = conv.model ?? userSettings?.defaultModel ?? undefined;
+  const activeTemp  = parseFloat(userSettings?.temperature ?? "0.7");
+
+  // SSE headers
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  const send = (data: object) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  // Send the user message ID so the client can correlate
+  const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
   send({ type: "start", userMessageId: userMsg.id });
 
   let fullContent = "";
@@ -244,8 +330,8 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
 
   try {
     const gen = generateStream(userId, historyAsc, {
-      model: conv.model ?? userSettings?.defaultModel ?? undefined,
-      temperature: parseFloat(userSettings?.temperature ?? "0.7"),
+      model: activeModel,
+      temperature: activeTemp,
       maxTokens: userSettings?.maxTokens ?? 2048,
       systemPrompt: conv.systemPromptContent ?? undefined,
     });
@@ -253,7 +339,6 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
     while (true) {
       const { value, done } = await gen.next();
       if (done) {
-        // value is the final AIResponse
         const aiResponse = value as any;
         finalMetadata = {
           model: aiResponse.model,
@@ -268,7 +353,6 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
       send({ type: "token", content: value });
     }
 
-    // Persist the full assistant message
     const [assistantMsg] = await db
       .insert(messages)
       .values({
@@ -279,25 +363,31 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
       })
       .returning();
 
-    // Auto-title
     if (conv.title === "New Conversation") {
       const title = await summarizeText(userId, content);
-      await db
-        .update(conversations)
-        .set({ title, updatedAt: new Date() })
-        .where(eq(conversations.id, convId));
+      await db.update(conversations).set({ title, updatedAt: new Date() }).where(eq(conversations.id, convId));
     } else {
-      await db
-        .update(conversations)
-        .set({ updatedAt: new Date() })
-        .where(eq(conversations.id, convId));
+      await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, convId));
     }
 
-    send({
-      type: "done",
-      assistantMessage: assistantMsg,
-      metadata: finalMetadata,
-    });
+    send({ type: "done", assistantMessage: assistantMsg, metadata: finalMetadata });
+
+    // ── Chat → Inbox: push findings if this was a research request ─────────
+    if (isResearchRequest(content) && fullContent.length > 100) {
+      try {
+        const pushed = await pushFindingsToInbox(userId, content, fullContent, activeModel, activeTemp);
+        if (pushed.length > 0) {
+          send({
+            type: "inbox_push",
+            count: pushed.length,
+            items: pushed.map((i) => ({ title: i.title, source: i.source })),
+          });
+        }
+      } catch (e: any) {
+        logger.warn("inbox_push failed silently", { err: e?.message });
+      }
+    }
+
   } catch (err: any) {
     logger.error("streamMessage error", { message: err.message });
     send({ type: "error", error: err.message });

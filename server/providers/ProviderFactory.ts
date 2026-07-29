@@ -15,11 +15,11 @@ import { OpenAIProvider } from "./OpenAIProvider.js";
 import type { ProviderConfig, ProviderID } from "../../shared/types.js";
 import { logger } from "../middleware/logger.js";
 
-// Singleton cache — one instance per (provider, apiKey) pair
+// Singleton cache — one instance per (provider, apiKey, defaultModel) triplet
 const providerCache = new Map<string, IProvider>();
 
 function cacheKey(config: ProviderConfig): string {
-  return `${config.provider}::${config.apiKey ?? ""}`;
+  return `${config.provider}::${config.apiKey ?? ""}::${config.defaultModel ?? ""}`;
 }
 
 export class ProviderFactory {
@@ -59,7 +59,7 @@ export class ProviderFactory {
           return new MockProvider();
         }
         logger.info("Creating GeminiProvider");
-        return new GeminiProvider(config.apiKey);
+        return new GeminiProvider(config.apiKey, config.defaultModel);
 
       case "openai":
         if (!config.apiKey) {
@@ -67,7 +67,7 @@ export class ProviderFactory {
           return new MockProvider();
         }
         logger.info("Creating OpenAIProvider");
-        return new OpenAIProvider(config.apiKey);
+        return new OpenAIProvider(config.apiKey, config.defaultModel);
 
       case "anthropic":
         logger.warn("AnthropicProvider not yet implemented — falling back to Mock");

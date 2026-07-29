@@ -18,9 +18,11 @@ export class GeminiProvider implements IProvider {
 
   private apiKey: string;
   private client: GoogleGenerativeAI;
+  private defaultModel: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, defaultModel?: string) {
     this.apiKey = apiKey;
+    this.defaultModel = defaultModel ?? "gemini-1.5-flash";
     this.client = new GoogleGenerativeAI(apiKey);
   }
 
@@ -35,7 +37,7 @@ export class GeminiProvider implements IProvider {
     this.assertConfigured();
     const start = Date.now();
 
-    const modelId = options.model ?? "gemini-1.5-flash";
+    const modelId = options.model ?? this.defaultModel;
     const model = this.client.getGenerativeModel({
       model: modelId,
       generationConfig: {
@@ -78,7 +80,7 @@ export class GeminiProvider implements IProvider {
   ): AsyncGenerator<string, AIResponse, unknown> {
     this.assertConfigured();
 
-    const modelId = options.model ?? "gemini-1.5-flash";
+    const modelId = options.model ?? this.defaultModel;
     const model = this.client.getGenerativeModel({
       model: modelId,
       generationConfig: {
@@ -202,7 +204,7 @@ Return only valid JSON, no markdown fences.`;
 
     const response = await this.generateResponse(
       [{ role: "user", content: prompt }],
-      { maxTokens: 500, temperature: 0.2 }
+      { model: this.defaultModel, maxTokens: 500, temperature: 0.2 }
     );
     return JSON.parse(response.content) as ItemAnalysisResult;
   }
