@@ -11,6 +11,7 @@ import chatRoutes from "./routes/chat.js";
 import settingsRoutes from "./routes/settings.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import promptRoutes from "./routes/prompts.js";
+import { sql as neonSql } from "./config/db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -21,6 +22,51 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 app.use(requestLogger);
+
+// ─── Auto-guest session ───────────────────────────────────────────────────────
+// Inject a guest session so the app works without login.
+// Guest user is bootstrapped at startup; ID is cached in memory.
+let guestUserId: number | null = null;
+
+async function bootstrapGuestUser() {
+  try {
+    const GUEST_EMAIL = "guest@iheal.local";
+    const existing = await neonSql`
+      SELECT id FROM users WHERE email = ${GUEST_EMAIL} LIMIT 1
+    `;
+    if (existing.length > 0) {
+      guestUserId = existing[0].id as number;
+      logger.info("Guest user found", { id: guestUserId });
+    } else {
+      const created = await neonSql`
+        INSERT INTO users (name, email, password, role)
+        VALUES ('Guest', ${GUEST_EMAIL}, 'guest-no-password', 'user')
+        RETURNING id
+      `;
+      guestUserId = created[0].id as number;
+      // Create default settings row
+      await neonSql`
+        INSERT INTO settings (user_id)
+        VALUES (${guestUserId})
+        ON CONFLICT (user_id) DO NOTHING
+      `;
+      logger.info("Created guest user", { id: guestUserId });
+    }
+  } catch (err: any) {
+    logger.warn("bootstrapGuestUser failed — guest session unavailable", {
+      err: err?.message ?? String(err),
+    });
+  }
+}
+
+// Auto-inject guest session for requests that have no session yet
+app.use((req, _res, next) => {
+  if (!req.session?.userId && guestUserId !== null) {
+    req.session.userId = guestUserId;
+    req.session.role = "user";
+  }
+  next();
+});
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
@@ -52,8 +98,9 @@ app.get("*", (_req, res) => {
 app.use(errorHandler);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`iHeal AI server listening on port ${PORT}`);
+  await bootstrapGuestUser();
 });
 
 declare module "express-session" {

@@ -1,20 +1,22 @@
-import { Menu, Settings } from "lucide-react";
+import { Menu, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Link, useLocation } from "wouter";
 
 interface TopBarProps {
   onMenuClick: () => void;
+  sidebarOpen: boolean;
 }
 
-export default function TopBar({ onMenuClick }: TopBarProps) {
+export default function TopBar({ onMenuClick, sidebarOpen }: TopBarProps) {
   const [location] = useLocation();
 
   return (
-    <header className="h-12 bg-white border-b border-gray-200 flex items-center px-3 gap-3 shrink-0">
+    <header className="h-13 bg-white border-b border-gray-200 flex items-center px-4 gap-3 shrink-0">
       <button
         onClick={onMenuClick}
         className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+        title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
       >
-        <Menu size={18} />
+        {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
       </button>
 
       <div className="flex-1" />
