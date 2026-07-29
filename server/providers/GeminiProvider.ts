@@ -155,11 +155,15 @@ Message: "${message}"`,
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { models?: Array<{ name: string; displayName: string; description?: string; outputTokenLimit?: number; supportedGenerationMethods?: string[] }> };
 
+      // Known deprecated / unavailable model name fragments to exclude
+      const DEPRECATED = ["vision", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-ultra", "aqa"];
+
       return (data.models ?? [])
-        .filter((m) =>
-          m.supportedGenerationMethods?.includes("generateContent") &&
-          !m.name.includes("vision") // filter out deprecated vision-only models
-        )
+        .filter((m) => {
+          if (!m.supportedGenerationMethods?.includes("generateContent")) return false;
+          const id = m.name.toLowerCase();
+          return !DEPRECATED.some((d) => id.includes(d));
+        })
         .map((m) => ({
           id: m.name.replace("models/", ""),
           name: m.displayName ?? m.name.replace("models/", ""),

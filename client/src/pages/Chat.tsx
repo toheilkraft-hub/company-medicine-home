@@ -247,6 +247,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -346,6 +347,7 @@ export default function Chat() {
     const ctrl = new AbortController();
     abortRef.current = () => { aborted = true; ctrl.abort(); };
 
+    setStreamError(null);
     try {
       const resp = await fetch(`/api/chat/conversations/${convId}/stream`, {
         method: "POST",
@@ -376,8 +378,15 @@ export default function Chat() {
             if (event.type === "token") {
               fullContent += event.content;
               setStreamingContent(fullContent);
-            } else if (event.type === "done" || event.type === "error") {
-              // Refresh conversation to get persisted messages
+            } else if (event.type === "error") {
+              // Extract a readable message from the AI error
+              const raw: string = event.error ?? "Unknown AI error";
+              const match = raw.match(/\[[\d]+ [^\]]+\]\s*(.+)/);
+              const friendly = match ? match[1].trim() : raw;
+              setStreamError(friendly);
+              qc.invalidateQueries({ queryKey: ["conversation", convId] });
+              qc.invalidateQueries({ queryKey: ["conversations"] });
+            } else if (event.type === "done") {
               qc.invalidateQueries({ queryKey: ["conversation", convId] });
               qc.invalidateQueries({ queryKey: ["conversations"] });
             }
@@ -388,7 +397,7 @@ export default function Chat() {
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
-        console.error("Stream error:", err);
+        setStreamError(err.message ?? "Connection error — please try again.");
       }
     } finally {
       setIsStreaming(false);
@@ -591,6 +600,20 @@ export default function Chat() {
               streamingContent
                 ? <StreamingBubble content={streamingContent} />
                 : <TypingIndicator />
+            )}
+            {streamError && (
+              <div className="flex items-start gap-3 px-4 py-2">
+                <div className="w-7 h-7 rounded-full bg-red-100 border border-red-200 flex items-center justify-center shrink-0">
+                  <span className="text-red-500 text-xs font-bold">!</span>
+                </div>
+                <div className="max-w-2xl bg-red-50 border border-red-200 rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-red-700">
+                  <p className="font-medium mb-1">AI error</p>
+                  <p className="text-xs leading-relaxed">{streamError}</p>
+                  {streamError.toLowerCase().includes("no longer available") || streamError.toLowerCase().includes("not found") ? (
+                    <p className="text-xs mt-2 text-red-500">→ Go to <strong>Settings → AI Provider</strong>, click <strong>Fetch available models</strong>, pick a different model and save.</p>
+                  ) : null}
+                </div>
+              </div>
             )}
           </>
         )}
