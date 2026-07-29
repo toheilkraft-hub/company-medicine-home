@@ -55,8 +55,10 @@ function Routes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes />
-    </AuthProvider>
+    <PasswordGate>
+      <AuthProvider>
+        <Routes />
+      </AuthProvider>
+    </PasswordGate>
   );
 }

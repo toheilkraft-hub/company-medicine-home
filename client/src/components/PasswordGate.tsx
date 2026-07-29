@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 
 const STORAGE_KEY = "iheal_access";
-const ACCESS_PASSWORD = "Ihealai";
+const ACCESS_PASSWORD = "ihealai1";
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
