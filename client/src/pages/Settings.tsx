@@ -458,7 +458,7 @@ export default function Settings() {
                   className="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500"
                   value={defaultModel}
                   onChange={(e) => setDefaultModel(e.target.value)}
-                  placeholder={provider === "gemini" ? "gemini-1.5-flash" : provider === "openai" ? "gpt-4o" : "mock-standard"}
+                  placeholder={provider === "gemini" ? "gemini-2.0-flash" : provider === "openai" ? "gpt-4o" : "mock-standard"}
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Use the AI Provider tab to fetch and pick from live models, or type a model ID directly.

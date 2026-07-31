@@ -12,6 +12,23 @@ import type {
 } from "../../shared/types.js";
 import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
 
+/** Rewrite "no longer available" API errors into a clear user-facing message. */
+function wrapModelError(err: unknown, modelId: string): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (
+    msg.toLowerCase().includes("no longer available") ||
+    msg.toLowerCase().includes("not found") ||
+    msg.includes("404")
+  ) {
+    throw new Error(
+      `The model "${modelId}" is not available with your API key. ` +
+      `Go to Settings → AI Provider, click "Fetch available models", ` +
+      `select a working model (e.g. Gemini 2.0 Flash), and save.`
+    );
+  }
+  throw err;
+}
+
 export class GeminiProvider implements IProvider {
   readonly id = "gemini";
   readonly name = "Google Gemini";
@@ -22,7 +39,7 @@ export class GeminiProvider implements IProvider {
 
   constructor(apiKey: string, defaultModel?: string) {
     this.apiKey = apiKey;
-    this.defaultModel = defaultModel ?? "gemini-1.5-flash";
+    this.defaultModel = defaultModel ?? "gemini-2.0-flash";
     this.client = new GoogleGenerativeAI(apiKey);
   }
 
@@ -36,42 +53,46 @@ export class GeminiProvider implements IProvider {
   ): Promise<AIResponse> {
     this.assertConfigured();
     const start = Date.now();
-
     const modelId = options.model ?? this.defaultModel;
-    const model = this.client.getGenerativeModel({
-      model: modelId,
-      generationConfig: {
-        temperature: options.temperature ?? 0.7,
-        maxOutputTokens: options.maxTokens ?? 2048,
-      },
-      systemInstruction: options.systemPrompt,
-    });
 
-    const geminiHistory = messages
-      .filter((m) => m.role !== "system")
-      .slice(0, -1)
-      .map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }] as Part[],
-      }));
+    try {
+      const model = this.client.getGenerativeModel({
+        model: modelId,
+        generationConfig: {
+          temperature: options.temperature ?? 0.7,
+          maxOutputTokens: options.maxTokens ?? 2048,
+        },
+        systemInstruction: options.systemPrompt,
+      });
 
-    const chat = model.startChat({ history: geminiHistory });
-    const lastMessage = messages[messages.length - 1];
-    const result = await chat.sendMessage(lastMessage.content);
-    const response = result.response;
-    const content = response.text();
-    const usage = response.usageMetadata;
+      const geminiHistory = messages
+        .filter((m) => m.role !== "system")
+        .slice(0, -1)
+        .map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }] as Part[],
+        }));
 
-    return {
-      content,
-      model: modelId,
-      provider: "gemini",
-      tokensUsed: usage?.totalTokenCount ?? 0,
-      promptTokens: usage?.promptTokenCount,
-      completionTokens: usage?.candidatesTokenCount,
-      latencyMs: Date.now() - start,
-      finishReason: response.candidates?.[0]?.finishReason ?? "stop",
-    };
+      const chat = model.startChat({ history: geminiHistory });
+      const lastMessage = messages[messages.length - 1];
+      const result = await chat.sendMessage(lastMessage.content);
+      const response = result.response;
+      const content = response.text();
+      const usage = response.usageMetadata;
+
+      return {
+        content,
+        model: modelId,
+        provider: "gemini",
+        tokensUsed: usage?.totalTokenCount ?? 0,
+        promptTokens: usage?.promptTokenCount,
+        completionTokens: usage?.candidatesTokenCount,
+        latencyMs: Date.now() - start,
+        finishReason: response.candidates?.[0]?.finishReason ?? "stop",
+      };
+    } catch (err) {
+      wrapModelError(err, modelId);
+    }
   }
 
   async *generateStream(
@@ -79,47 +100,51 @@ export class GeminiProvider implements IProvider {
     options: GenerateOptions = {}
   ): AsyncGenerator<string, AIResponse, unknown> {
     this.assertConfigured();
-
     const modelId = options.model ?? this.defaultModel;
-    const model = this.client.getGenerativeModel({
-      model: modelId,
-      generationConfig: {
-        temperature: options.temperature ?? 0.7,
-        maxOutputTokens: options.maxTokens ?? 2048,
-      },
-      systemInstruction: options.systemPrompt,
-    });
 
-    const geminiHistory = messages
-      .filter((m) => m.role !== "system")
-      .slice(0, -1)
-      .map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }] as Part[],
-      }));
+    try {
+      const model = this.client.getGenerativeModel({
+        model: modelId,
+        generationConfig: {
+          temperature: options.temperature ?? 0.7,
+          maxOutputTokens: options.maxTokens ?? 2048,
+        },
+        systemInstruction: options.systemPrompt,
+      });
 
-    const chat = model.startChat({ history: geminiHistory });
-    const lastMessage = messages[messages.length - 1];
-    const { stream, response } = await chat.sendMessageStream(lastMessage.content);
+      const geminiHistory = messages
+        .filter((m) => m.role !== "system")
+        .slice(0, -1)
+        .map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }] as Part[],
+        }));
 
-    let full = "";
-    for await (const chunk of stream) {
-      const text = chunk.text();
-      full += text;
-      yield text;
+      const chat = model.startChat({ history: geminiHistory });
+      const lastMessage = messages[messages.length - 1];
+      const { stream, response } = await chat.sendMessageStream(lastMessage.content);
+
+      let full = "";
+      for await (const chunk of stream) {
+        const text = chunk.text();
+        full += text;
+        yield text;
+      }
+
+      const resolved = await response;
+      const usage = resolved.usageMetadata;
+      return {
+        content: full,
+        model: modelId,
+        provider: "gemini",
+        tokensUsed: usage?.totalTokenCount,
+        promptTokens: usage?.promptTokenCount,
+        completionTokens: usage?.candidatesTokenCount,
+        finishReason: resolved.candidates?.[0]?.finishReason ?? "stop",
+      };
+    } catch (err) {
+      wrapModelError(err, modelId);
     }
-
-    const resolved = await response;
-    const usage = resolved.usageMetadata;
-    return {
-      content: full,
-      model: modelId,
-      provider: "gemini",
-      tokensUsed: usage?.totalTokenCount,
-      promptTokens: usage?.promptTokenCount,
-      completionTokens: usage?.candidatesTokenCount,
-      finishReason: resolved.candidates?.[0]?.finishReason ?? "stop",
-    };
   }
 
   async summarize(text: string, options: GenerateOptions = {}): Promise<string> {
@@ -147,6 +172,7 @@ Message: "${message}"`,
 
   /**
    * Fetch the live list of models from the Gemini API.
+   * Filters to chat-capable models with usable rate limits.
    * Falls back to a curated static list if the fetch fails.
    */
   async listModels(): Promise<ModelInfo[]> {
@@ -166,15 +192,28 @@ Message: "${message}"`,
         }>;
       };
 
-      // Exclude non-chat model name fragments (embeddings, image-only, legacy, utility)
-      const EXCLUDE_FRAGMENTS = ["embedding", "aqa", "gemini-ultra", "vision"];
+      // Fragments that indicate non-chat models
+      const EXCLUDE_FRAGMENTS = ["embedding", "aqa", "vision"];
+
+      // Bare deprecated aliases that appear in the list but fail for new users.
+      // Versioned variants (e.g. gemini-2.5-flash-preview-05-20) are still allowed.
+      const DEPRECATED_EXACT = new Set([
+        "models/gemini-2.5-flash",
+        "models/gemini-2.5-pro",
+        "models/gemini-1.5-flash",
+        "models/gemini-1.5-pro",
+        "models/gemini-pro",
+        "models/gemini-ultra",
+      ]);
 
       return (data.models ?? [])
         .filter((m) => {
           // Must support text generation
           if (!m.supportedGenerationMethods?.includes("generateContent")) return false;
-          // Must have a usable input token limit (zero = not available for standard use)
+          // Must have a usable input token limit (0 = not available for standard use)
           if ((m.inputTokenLimit ?? 0) === 0) return false;
+          // Exclude known deprecated bare aliases
+          if (DEPRECATED_EXACT.has(m.name)) return false;
           // Exclude non-chat model types
           const id = m.name.toLowerCase();
           return !EXCLUDE_FRAGMENTS.some((frag) => id.includes(frag));
@@ -198,13 +237,10 @@ Message: "${message}"`,
           return priority(a.id) - priority(b.id);
         });
     } catch {
-      // Fallback static list with latest available chat models
+      // Fallback: only stable models known to work for new users
       return [
-        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Latest fast model — best for most tasks", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Most capable Gemini model", maxTokens: 32768, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast and efficient", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Reliable and cost-effective", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "High-capability 1.5 model", maxTokens: 32768, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast, capable — works for all accounts", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", description: "Lightweight and fast", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
       ];
     }
   }

@@ -49,7 +49,7 @@ export const createConversation = asyncHandler(async (req: Request, res: Respons
     .values({
       userId,
       title: title ?? "New Conversation",
-      model: model ?? userSettings?.defaultModel ?? "gemini-1.5-flash",
+      model: model ?? userSettings?.defaultModel ?? "gemini-2.0-flash",
       provider: provider ?? userSettings?.provider ?? "mock",
       systemPromptId: systemPromptId ?? null,
       systemPromptContent: systemPromptContent ?? null,
