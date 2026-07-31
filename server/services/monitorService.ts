@@ -138,14 +138,12 @@ export async function fetchRedditItems(
 }
 
 // ── Google News RSS (free, no auth, topic-exact) ──────────────────────────────
-// Google News RSS is a search-engine backed feed: every result is about the
-// query. We parse it with the existing RSS parser and apply a `since` date
-// filter so we only ingest items newer than the last run.
+// Google News RSS is search-engine backed: every result is about the query.
+// We do NOT apply a `since` date filter here — URL deduplication in ingestItems
+// already prevents re-ingesting items seen before, and `since` would incorrectly
+// block articles still in the feed that were published before the last poll.
 
-async function fetchGoogleNewsItems(
-  query: string,
-  since?: Date,
-): Promise<FeedItem[]> {
+async function fetchGoogleNewsItems(query: string): Promise<FeedItem[]> {
   const params = new URLSearchParams({
     q: query,
     hl: "en-US",
@@ -161,14 +159,10 @@ async function fetchGoogleNewsItems(
     return r.text();
   });
 
-  // Google News wraps real URLs in a redirect — extract the actual source URL
-  // from the <link> tag before the <title> in each item.
-  const rawItems = parseRSSFeed(xml, since);
+  // Parse without a `since` cutoff — dedup is handled at the DB level.
+  const rawItems = parseRSSFeed(xml);
 
-  // Unwrap Google's redirect links (format: https://news.google.com/rss/articles/...)
-  // The real URL is embedded as the last segment after base64 decoding — too
-  // fragile. Instead, keep the Google link but strip the /rss/ prefix so it
-  // opens as a readable page in a browser.
+  // Unwrap Google's redirect prefix so links open as readable pages.
   return rawItems.map((item) => ({
     ...item,
     url: item.url.replace(
@@ -178,16 +172,16 @@ async function fetchGoogleNewsItems(
   }));
 }
 
-// ── Web search: Google News (primary) ────────────────────────────────────────
+// ── Web / Quora search: Google News (primary) ─────────────────────────────────
 
 async function fetchWebItems(
   query: string,
-  since?: Date,
+  _since?: Date,
   _timeFilter: RedditTimeFilter = "week",
 ): Promise<FeedItem[]> {
-  // Google News RSS is search-engine backed, so results are always on-topic.
-  // No secondary source needed — this is more accurate than any scraper.
-  return fetchGoogleNewsItems(query, since);
+  // Google News RSS is search-engine backed and always on-topic.
+  // Duplicate prevention is handled by URL dedup in ingestItems.
+  return fetchGoogleNewsItems(query);
 }
 
 // ── Per-source fetcher dispatcher ─────────────────────────────────────────────

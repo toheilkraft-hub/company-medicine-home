@@ -262,11 +262,42 @@ Content: ${item.content}
 
 Return only valid JSON, no markdown fences.`;
 
-    const response = await this.generateResponse(
-      [{ role: "user", content: prompt }],
-      { model: this.defaultModel, maxTokens: 500, temperature: 0.2 }
-    );
-    return JSON.parse(response.content) as ItemAnalysisResult;
+    // Try the configured model first; if unavailable, fall back to stable aliases.
+    const fallbackChain = [
+      this.defaultModel,
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-flash-latest",
+    ].filter((m, i, arr) => arr.indexOf(m) === i); // deduplicate
+
+    let lastErr: unknown;
+    for (const modelId of fallbackChain) {
+      try {
+        const response = await this.generateResponse(
+          [{ role: "user", content: prompt }],
+          { model: modelId, maxTokens: 500, temperature: 0.2 }
+        );
+        // If a fallback model worked, update defaultModel so future calls skip retries
+        if (modelId !== this.defaultModel) {
+          this.defaultModel = modelId;
+        }
+        return JSON.parse(response.content) as ItemAnalysisResult;
+      } catch (err: any) {
+        const msg: string = err?.message ?? String(err);
+        // Only fall through to the next model for "not available" errors.
+        // Rate-limit (429) and auth errors should surface immediately.
+        if (
+          msg.includes("429") ||
+          msg.toLowerCase().includes("quota") ||
+          msg.toLowerCase().includes("api key") ||
+          msg.toLowerCase().includes("permission")
+        ) {
+          throw err;
+        }
+        lastErr = err;
+      }
+    }
+    throw lastErr;
   }
 
   private assertConfigured() {
