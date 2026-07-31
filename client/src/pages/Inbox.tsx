@@ -14,7 +14,7 @@ import {
   Stethoscope, ShieldCheck, TrendingUp, BarChart3,
   Filter, Tag, Star, AlertTriangle, Zap,
 } from "lucide-react";
-import type { CollectedItemRow, ItemStatus, MonitorRow } from "@shared/types";
+import type { CollectedItemRow, ItemStatus, MonitorRow, ProcessingStep } from "@shared/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -520,12 +520,47 @@ function MonitorsPanel({ onSearchDone }: { onSearchDone: () => void }) {
 // ── Filter tabs ───────────────────────────────────────────────────────────────
 
 const FILTERS: { key: string; label: string; description: string }[] = [
-  { key: "all",        label: "All Items",  description: "All collected items" },
-  { key: "new",        label: "New",        description: "Awaiting processing" },
-  { key: "processing", label: "Processing", description: "Merit filter running" },
-  { key: "reviewed",   label: "Review",     description: "Passed all merit checks" },
-  { key: "archived",   label: "Filtered",   description: "Did not meet merit criteria" },
+  { key: "all",        label: "All Items",     description: "All collected items" },
+  { key: "new",        label: "New",           description: "Awaiting processing" },
+  { key: "processing", label: "Processing",    description: "Merit filter running" },
+  { key: "reviewed",   label: "Final Review",  description: "Passed all merit checks" },
+  { key: "archived",   label: "Filtered",      description: "Did not meet merit criteria" },
 ];
+
+// ── Processing step metadata ──────────────────────────────────────────────────
+
+const STEP_ORDER: ProcessingStep[] = [
+  "pending", "fetching_page", "extracting_metadata",
+  "checking_medical", "checking_date", "running_seo",
+  "completed", "rejected",
+];
+
+const STEP_META: Record<ProcessingStep, { label: string; color: string; bg: string; dot: string }> = {
+  pending:              { label: "Pending",                    color: "text-gray-500",   bg: "bg-gray-100",   dot: "bg-gray-400"   },
+  fetching_page:        { label: "Fetching page",              color: "text-blue-600",   bg: "bg-blue-50",    dot: "bg-blue-400"   },
+  extracting_metadata:  { label: "Extracting metadata",        color: "text-indigo-600", bg: "bg-indigo-50",  dot: "bg-indigo-400" },
+  checking_medical:     { label: "Checking medical relevance", color: "text-teal-700",   bg: "bg-teal-50",    dot: "bg-teal-500"   },
+  checking_date:        { label: "Checking publish date",      color: "text-cyan-700",   bg: "bg-cyan-50",    dot: "bg-cyan-500"   },
+  running_seo:          { label: "Running SEO analysis",       color: "text-amber-700",  bg: "bg-amber-50",   dot: "bg-amber-500"  },
+  completed:            { label: "Completed",                  color: "text-green-700",  bg: "bg-green-50",   dot: "bg-green-500"  },
+  rejected:             { label: "Rejected",                   color: "text-red-600",    bg: "bg-red-50",     dot: "bg-red-400"    },
+};
+
+function ProcessingStepBadge({ step }: { step: ProcessingStep }) {
+  const meta  = STEP_META[step] ?? STEP_META.pending;
+  const isDone = step === "completed" || step === "rejected";
+  const isActive = !isDone && step !== "pending";
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border",
+      meta.bg, meta.color,
+      isDone ? "border-transparent" : "border-current border-opacity-20",
+    )}>
+      {isActive && <span className={cn("w-1.5 h-1.5 rounded-full animate-pulse shrink-0", meta.dot)} />}
+      {meta.label}
+    </span>
+  );
+}
 
 // ── Item list entry ───────────────────────────────────────────────────────────
 
@@ -591,9 +626,7 @@ function ItemEntry({
           <SourceBadge source={item.source} />
           <StatusBadge status={item.status} />
           {item.status === "processing" && (
-            <span className="inline-flex items-center gap-1 text-[9px] text-amber-600 font-semibold">
-              <Filter size={8} className="animate-pulse" />Merit check…
-            </span>
+            <ProcessingStepBadge step={item.processingStep} />
           )}
           {item.analysis?.meritPassed === false && (
             <span className="inline-flex items-center gap-1 text-[9px] text-red-500 font-semibold">
@@ -652,48 +685,186 @@ function EmptyList({ status }: { status: string }) {
 
 // ── Processing merit panel ────────────────────────────────────────────────────
 
+const PIPELINE_STEPS: { step: ProcessingStep; label: string }[] = [
+  { step: "fetching_page",       label: "Fetching page content"       },
+  { step: "extracting_metadata", label: "Extracting metadata"         },
+  { step: "checking_medical",    label: "Checking medical relevance"  },
+  { step: "checking_date",       label: "Checking publish date"       },
+  { step: "running_seo",         label: "Running SEO analysis"        },
+];
+
 function ProcessingMeritPanel({ item }: { item: CollectedItemRow }) {
-  const checks = [
-    { label: "Medical relevance scan",  done: !!item.analysis, pass: item.analysis?.isMedical },
-    { label: "Date / timeline match",   done: !!item.analysis, pass: true },
-    { label: "Author authority check",  done: !!item.analysis, pass: item.analysis ? item.analysis.authorAuthority >= 40 : undefined },
-    { label: "SEO merit threshold ≥ 30",done: !!item.analysis, pass: item.analysis ? item.analysis.seoScore >= 30 : undefined },
-  ];
+  const currentIdx = STEP_ORDER.indexOf(item.processingStep);
 
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2.5">
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
       <div className="flex items-center gap-2">
         <Filter size={14} className="text-amber-500 shrink-0 animate-pulse" />
-        <p className="text-sm font-semibold text-amber-800">Merit Filter Running</p>
-        {!item.analysis && <Loader2 size={12} className="text-amber-500 animate-spin ml-auto" />}
+        <p className="text-sm font-semibold text-amber-800">Processing Pipeline</p>
+        <Loader2 size={12} className="text-amber-500 animate-spin ml-auto" />
       </div>
       <p className="text-xs text-amber-600">
-        Each item must pass all checks to advance to Review. Failures go to Filtered.
+        Live view — each step runs in sequence. Items that pass all checks advance to Final Review.
       </p>
+
+      {/* Step-by-step pipeline */}
       <div className="space-y-1.5">
-        {checks.map(({ label, done, pass }) => (
-          <div key={label} className="flex items-center gap-2">
-            {!done ? (
-              <Loader2 size={11} className="text-amber-400 animate-spin shrink-0" />
-            ) : pass ? (
-              <CheckCircle size={11} className="text-green-500 shrink-0" />
-            ) : (
-              <AlertTriangle size={11} className="text-red-500 shrink-0" />
-            )}
-            <span className={cn("text-[11px]",
-              !done ? "text-amber-600"
-              : pass ? "text-green-700 font-medium"
-              : "text-red-600 font-medium line-through")}>
-              {label}
-            </span>
-            {done && pass !== undefined && (
-              <span className={cn("ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full",
-                pass ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600")}>
-                {pass ? "PASS" : "FAIL"}
+        {PIPELINE_STEPS.map(({ step, label }) => {
+          const stepIdx    = STEP_ORDER.indexOf(step);
+          const isDone     = currentIdx > stepIdx;
+          const isActive   = currentIdx === stepIdx;
+          const isPending  = currentIdx < stepIdx;
+
+          return (
+            <div key={step} className={cn(
+              "flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-all",
+              isActive  ? "bg-white border-amber-300 shadow-sm" :
+              isDone    ? "bg-green-50 border-green-200" :
+                          "bg-white/50 border-gray-100",
+            )}>
+              <div className="shrink-0">
+                {isDone    ? <CheckCircle size={13} className="text-green-500" /> :
+                 isActive  ? <Loader2    size={13} className="text-amber-500 animate-spin" /> :
+                             <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 inline-block" />}
+              </div>
+              <span className={cn("text-[11px] font-medium flex-1",
+                isDone   ? "text-green-700" :
+                isActive ? "text-amber-800 font-semibold" :
+                           "text-gray-400")}>
+                {label}
               </span>
-            )}
+              {isDone && (
+                <span className="text-[9px] font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full">
+                  DONE
+                </span>
+              )}
+              {isActive && (
+                <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full animate-pulse">
+                  RUNNING
+                </span>
+              )}
+              {isPending && (
+                <span className="text-[9px] text-gray-400 px-1.5 py-0.5 rounded-full">
+                  QUEUED
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Current step callout */}
+      {item.processingStep !== "completed" && item.processingStep !== "rejected" && (
+        <div className="flex items-center gap-2 pt-1">
+          <ProcessingStepBadge step={item.processingStep} />
+          <span className="text-[10px] text-amber-600">in progress…</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Final Review Panel (for reviewed/passed items) ────────────────────────────
+
+function FinalReviewPanel({ item }: { item: CollectedItemRow }) {
+  const a = item.analysis!;
+  const seo = seoColor(a.seoScore);
+
+  const passReasons: string[] = [];
+  if (a.isMedical)            passReasons.push("Medical content confirmed");
+  if (a.seoScore >= 30)       passReasons.push(`SEO score ${a.seoScore}% (≥ 30 threshold)`);
+  if (a.authorAuthority >= 40) passReasons.push(`Source authority ${a.authorAuthority}/100`);
+  passReasons.push("Published within monitoring window");
+
+  const hostname = (() => {
+    try { return new URL(item.url!).hostname.replace(/^www\./, ""); } catch { return item.source; }
+  })();
+
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-xl overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 bg-gradient-to-r from-green-600 to-teal-600 flex items-center gap-2">
+        <CheckCircle size={15} className="text-white shrink-0" />
+        <span className="text-sm font-bold text-white">Passed Final Review</span>
+        <span className="ml-auto text-[10px] text-green-100 font-medium">All merit checks passed</span>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* Scores row */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className={cn("rounded-lg border p-2.5 text-center", seo.bg)}>
+            <p className="text-[9px] uppercase font-bold text-gray-400 mb-0.5">SEO Score</p>
+            <p className={cn("text-xl font-bold", seo.text)}>{a.seoScore}%</p>
+            <p className={cn("text-[9px] font-semibold", seo.text)}>{seo.label}</p>
           </div>
-        ))}
+          <div className="rounded-lg border bg-teal-50 border-teal-200 p-2.5 text-center">
+            <p className="text-[9px] uppercase font-bold text-gray-400 mb-0.5">Medical</p>
+            <p className="text-xl font-bold text-teal-700">{a.confidenceScore}%</p>
+            <p className="text-[9px] font-semibold text-teal-600">Relevance</p>
+          </div>
+          <div className="rounded-lg border bg-blue-50 border-blue-200 p-2.5 text-center">
+            <p className="text-[9px] uppercase font-bold text-gray-400 mb-0.5">Date</p>
+            <p className="text-xl font-bold text-blue-700">✓</p>
+            <p className="text-[9px] font-semibold text-blue-600">In range</p>
+          </div>
+        </div>
+
+        {/* Article metadata */}
+        <div className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+          {item.url && (
+            <div className="flex items-start gap-2">
+              <Globe size={11} className="text-gray-400 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] uppercase font-bold text-gray-400">Website</p>
+                <p className="text-xs font-semibold text-gray-700">{hostname}</p>
+              </div>
+            </div>
+          )}
+          <div className="flex items-start gap-2">
+            <Calendar size={11} className="text-gray-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[9px] uppercase font-bold text-gray-400">Published</p>
+              <p className="text-xs font-semibold text-gray-700">
+                {new Date(item.collectedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Description */}
+        {a.description && (
+          <div>
+            <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Article Summary</p>
+            <p className="text-xs text-gray-700 leading-relaxed">{a.description}</p>
+          </div>
+        )}
+
+        {/* Reasons it passed */}
+        <div>
+          <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Why it passed</p>
+          <div className="space-y-1">
+            {passReasons.map((reason) => (
+              <div key={reason} className="flex items-center gap-1.5">
+                <CheckCircle size={10} className="text-green-500 shrink-0" />
+                <span className="text-[11px] text-green-800">{reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* SEO Keywords */}
+        {a.seoKeywords && a.seoKeywords.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Medical Keywords</p>
+            <div className="flex flex-wrap gap-1">
+              {a.seoKeywords.map((kw) => (
+                <span key={kw} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-teal-50 border border-teal-200 text-teal-700 text-[9px] font-semibold">
+                  <Hash size={7} />{kw}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -870,6 +1041,11 @@ function ItemDetail({
 
       <div className="flex-1 overflow-y-auto bg-gray-50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+
+          {/* Final Review panel — shown for reviewed items */}
+          {item.status === "reviewed" && a && (
+            <FinalReviewPanel item={item} />
+          )}
 
           {/* Processing merit panel */}
           {item.status === "processing" && (

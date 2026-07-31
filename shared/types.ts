@@ -24,6 +24,16 @@ export interface ItemAnalysisResult {
 
 export type ItemStatus = "new" | "processing" | "reviewed" | "archived";
 
+export type ProcessingStep =
+  | "pending"
+  | "fetching_page"
+  | "extracting_metadata"
+  | "checking_medical"
+  | "checking_date"
+  | "running_seo"
+  | "completed"
+  | "rejected";
+
 export interface CollectedItemRow {
   id: number;
   userId: number;
@@ -35,6 +45,7 @@ export interface CollectedItemRow {
   collectedAt: string;
   tags: string[];
   status: ItemStatus;
+  processingStep: ProcessingStep;
   createdAt: string;
   updatedAt: string;
   analysis: (ItemAnalysisResult & { processedAt: string; id: number }) | null;

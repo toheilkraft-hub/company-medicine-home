@@ -99,6 +99,10 @@ export const collectedItems = pgTable("collected_items", {
   collectedAt: timestamp("collected_at").defaultNow().notNull(),
   tags: jsonb("tags").$type<string[]>().default([]),
   status: varchar("status", { length: 50 }).notNull().default("new"),
+  // Fine-grained step within processing:
+  // pending → fetching_page → extracting_metadata → checking_medical →
+  // checking_date → running_seo → completed | rejected
+  processingStep: varchar("processing_step", { length: 50 }).notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
