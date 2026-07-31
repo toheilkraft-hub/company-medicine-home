@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { apiFetch } from "../lib/queryClient";
@@ -11,17 +11,33 @@ import {
   User, Calendar, Hash, Activity,
   Play, Pause, Square, Plus, ChevronDown, ChevronUp,
   Trash2, Wifi, Download, Bell, X, Search, Timer,
+  Stethoscope, ShieldCheck, TrendingUp, BarChart3,
+  Filter, Tag, Star, AlertTriangle, Zap,
 } from "lucide-react";
 import type { CollectedItemRow, ItemStatus, MonitorRow } from "@shared/types";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Strip HTML tags and decode common entities from a string */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 interface ListData {
   items: CollectedItemRow[];
   counts: { new: number; processing: number; reviewed: number; archived: number; all: number };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Source / Status / Sentiment meta ─────────────────────────────────────────
 
 const SOURCE_META: Record<string, { label: string; color: string; Icon: React.ElementType }> = {
   reddit:  { label: "Reddit",  color: "bg-orange-100 text-orange-700 border-orange-200", Icon: MessageSquare },
@@ -52,6 +68,13 @@ function priorityColor(score: number): string {
   return "text-gray-600 bg-gray-50 border-gray-200";
 }
 
+function seoColor(score: number): { bar: string; text: string; bg: string; label: string } {
+  if (score >= 75) return { bar: "bg-green-500", text: "text-green-700", bg: "bg-green-50 border-green-200", label: "Excellent" };
+  if (score >= 55) return { bar: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50 border-amber-200", label: "Good" };
+  if (score >= 35) return { bar: "bg-orange-400", text: "text-orange-700", bg: "bg-orange-50 border-orange-200", label: "Fair" };
+  return { bar: "bg-red-400", text: "text-red-600", bg: "bg-red-50 border-red-200", label: "Low" };
+}
+
 function SourceBadge({ source }: { source: string }) {
   const meta = SOURCE_META[source] ?? SOURCE_META.manual;
   const Icon = meta.Icon;
@@ -75,43 +98,39 @@ function StatusBadge({ status }: { status: string }) {
 
 function exportToXLS(items: CollectedItemRow[]) {
   const rows = items.map((item) => ({
-    "Title":           item.title,
-    "Source":          item.source,
-    "URL":             item.url ?? "",
-    "Author":          item.author ?? "",
-    "Collected At":    new Date(item.collectedAt).toLocaleString(),
-    "Status":          item.status,
-    "Tags":            (item.tags ?? []).join(", "),
-    "Summary":         item.analysis?.summary ?? "",
-    "Priority Score":  item.analysis?.priorityScore ?? "",
-    "Sentiment":       item.analysis?.sentiment ?? "",
-    "Intent":          item.analysis?.intent ?? "",
-    "Industry":        item.analysis?.industry ?? "",
-    "Category":        item.analysis?.category ?? "",
-    "Suggested Reply": item.analysis?.suggestedReply ?? "",
-    "Content":         item.content,
+    "Title":            item.title,
+    "Source":           item.source,
+    "URL":              item.url ?? "",
+    "Author":           item.author ?? "",
+    "Collected At":     new Date(item.collectedAt).toLocaleString(),
+    "Status":           item.status,
+    "Tags":             (item.tags ?? []).join(", "),
+    "Summary":          item.analysis?.summary ?? "",
+    "Description":      item.analysis?.description ?? stripHtml(item.content).slice(0, 300),
+    "SEO Score":        item.analysis?.seoScore ?? "",
+    "SEO Keywords":     (item.analysis?.seoKeywords ?? []).join(", "),
+    "Author Authority": item.analysis?.authorAuthority ?? "",
+    "Merit Passed":     item.analysis?.meritPassed ?? "",
+    "Priority Score":   item.analysis?.priorityScore ?? "",
+    "Sentiment":        item.analysis?.sentiment ?? "",
+    "Intent":           item.analysis?.intent ?? "",
+    "Industry":         item.analysis?.industry ?? "",
+    "Category":         item.analysis?.category ?? "",
+    "Suggested Reply":  item.analysis?.suggestedReply ?? "",
   }));
 
   const ws = XLSX.utils.json_to_sheet(rows);
-
-  // Auto-fit column widths
   const colWidths = Object.keys(rows[0] ?? {}).map((key) => ({
-    wch: Math.min(
-      60,
-      Math.max(
-        key.length + 2,
-        ...rows.map((r) => String((r as Record<string, unknown>)[key] ?? "").length),
-      ),
-    ),
+    wch: Math.min(60, Math.max(key.length + 2, ...rows.map((r) => String((r as Record<string, unknown>)[key] ?? "").length))),
   }));
   ws["!cols"] = colWidths;
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Intelligence Items");
-  XLSX.writeFile(wb, `iheal-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, "Medical Intelligence");
+  XLSX.writeFile(wb, `iheal-medical-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
-// ── Source configs ─────────────────────────────────────────────────────────────
+// ── Source / Timeline configs ─────────────────────────────────────────────────
 
 const SOURCES = [
   { id: "reddit", label: "Reddit",  color: "text-orange-600" },
@@ -120,26 +139,23 @@ const SOURCES = [
 ] as const;
 
 const TIMELINES = [
-  { value: "hour",  label: "Past hour"    },
-  { value: "day",   label: "Past 24 hours"},
-  { value: "week",  label: "Past week"    },
-  { value: "month", label: "Past month"   },
+  { value: "hour",  label: "Past hour"     },
+  { value: "day",   label: "Past 24 hours" },
+  { value: "week",  label: "Past week"     },
+  { value: "month", label: "Past month"    },
 ] as const;
 
 // ── Monitors panel ────────────────────────────────────────────────────────────
 
-function MonitorsPanel() {
+function MonitorsPanel({ onSearchDone }: { onSearchDone: () => void }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showForm, setShowForm]     = useState(false);
 
-  // form state
   const [formTopic,     setFormTopic]     = useState("");
-  const [formSources,   setFormSources]   = useState<Set<string>>(new Set(["reddit"]));
+  const [formSources,   setFormSources]   = useState<Set<string>>(new Set(["web"]));
   const [formTimeline,  setFormTimeline]  = useState("week");
   const [formSubreddit, setFormSubreddit] = useState("");
-
-  // search state
-  const [searching, setSearching] = useState<number | null>(null); // monitorId being run
+  const [searching, setSearching]         = useState<number | null>(null);
 
   const qc = useQueryClient();
 
@@ -175,7 +191,7 @@ function MonitorsPanel() {
     setFormSources((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
-        if (next.size === 1) return prev; // keep at least one
+        if (next.size === 1) return prev;
         next.delete(id);
       } else {
         next.add(id);
@@ -186,7 +202,7 @@ function MonitorsPanel() {
 
   async function handleSearch() {
     if (!formTopic.trim()) return;
-    setSearching(-1); // indicate creating
+    setSearching(-1);
 
     const srcArr = [...formSources];
     const primarySource = srcArr.length === 1 ? srcArr[0] : "multi";
@@ -211,23 +227,23 @@ function MonitorsPanel() {
 
     await qc.invalidateQueries({ queryKey: ["monitors"] });
 
-    // Immediately run the monitor
     setSearching(monitor.id);
     try {
       await apiFetch(`/api/monitors/${monitor.id}/run`, "POST");
       await qc.invalidateQueries({ queryKey: ["inbox"] });
       await qc.invalidateQueries({ queryKey: ["monitors"] });
+      // Auto-switch to processing tab to watch merit filtering
+      onSearchDone();
     } finally {
       setSearching(null);
       setFormTopic("");
       setFormSubreddit("");
-      setFormSources(new Set(["reddit"]));
+      setFormSources(new Set(["web"]));
       setFormTimeline("week");
       setShowForm(false);
     }
   }
 
-  // Source labels for a monitor's sourceConfig
   function monitorSources(m: MonitorRow): string {
     const cfg = m.sourceConfig as Record<string, string>;
     if (cfg?.sources) {
@@ -242,7 +258,7 @@ function MonitorsPanel() {
       <div className="flex items-center gap-2 px-4 py-2.5">
         <button onClick={() => setIsExpanded((v) => !v)} className="flex items-center gap-1.5 flex-1 min-w-0">
           <Wifi size={11} className={cn("shrink-0", activeCount > 0 ? "text-green-500" : "text-gray-400")} />
-          <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Research Monitors</span>
+          <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Medical Research</span>
           {activeCount > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700">
               {activeCount} live · 5min
@@ -256,7 +272,7 @@ function MonitorsPanel() {
           onClick={() => { setShowForm((v) => !v); setIsExpanded(true); }}
           className={cn("p-1 rounded-md transition-colors shrink-0",
             showForm ? "bg-brand-100 text-brand-700" : "text-gray-400 hover:text-brand-600 hover:bg-gray-100")}
-          title="New search"
+          title="New medical search"
         >
           <Plus size={12} />
         </button>
@@ -268,19 +284,31 @@ function MonitorsPanel() {
           {/* ── New search form ───────────────────────────────────────── */}
           {showForm && (
             <div className="mx-3 mb-2 bg-brand-50 border border-brand-100 rounded-xl p-3 space-y-2.5">
-              <p className="text-[10px] font-bold text-brand-700 uppercase tracking-wider flex items-center gap-1.5">
-                <Search size={10} /> New Research Search
-              </p>
+              {/* Medical focus badge */}
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold text-brand-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Search size={10} /> Medical Research Search
+                </p>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 border border-teal-200 text-[9px] font-bold text-teal-700">
+                  <Stethoscope size={8} /> Medical Only
+                </span>
+              </div>
+
+              {/* Medical context notice */}
+              <div className="flex items-start gap-1.5 px-2 py-1.5 bg-teal-50 rounded-lg border border-teal-100 text-[10px] text-teal-700">
+                <ShieldCheck size={10} className="shrink-0 mt-0.5 text-teal-500" />
+                Searches are automatically scoped to human medical conditions, diagnoses, and treatments.
+              </div>
 
               {/* Topic input */}
               <div>
-                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Search topic</label>
+                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Medical topic or condition</label>
                 <input
                   type="text"
                   value={formTopic}
                   onChange={(e) => setFormTopic(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  placeholder="e.g. cancer treatment breakthroughs"
+                  placeholder="e.g. diabetes insulin resistance, COPD treatment"
                   className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
                   autoFocus
                 />
@@ -312,17 +340,16 @@ function MonitorsPanel() {
                 </div>
               </div>
 
-              {/* Optional subreddit (only if reddit checked) */}
               {formSources.has("reddit") && (
                 <div>
                   <label className="block text-[10px] text-gray-500 mb-1 font-medium">
-                    Subreddit <span className="text-gray-400">(optional)</span>
+                    Subreddit <span className="text-gray-400">(optional, e.g. medicine)</span>
                   </label>
                   <input
                     type="text"
                     value={formSubreddit}
                     onChange={(e) => setFormSubreddit(e.target.value)}
-                    placeholder="e.g. science or leave blank for all"
+                    placeholder="e.g. medicine, askdocs, healthcareworkers"
                     className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
                   />
                 </div>
@@ -330,7 +357,7 @@ function MonitorsPanel() {
 
               {/* Timeline */}
               <div>
-                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Post timeline</label>
+                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Publication timeline</label>
                 <div className="grid grid-cols-2 gap-1.5">
                   {TIMELINES.map(({ value, label }) => (
                     <label
@@ -355,13 +382,12 @@ function MonitorsPanel() {
                 </div>
               </div>
 
-              {/* Note about auto-refresh */}
-              <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg border border-gray-200 text-[10px] text-gray-500">
-                <Timer size={10} className="text-brand-400 shrink-0" />
-                Auto-refreshes every <strong className="text-brand-600 mx-0.5">5 minutes</strong> until you stop it
+              {/* Process notice */}
+              <div className="flex items-start gap-1.5 px-2 py-1.5 bg-white rounded-lg border border-gray-200 text-[10px] text-gray-500">
+                <Zap size={10} className="text-amber-400 shrink-0 mt-0.5" />
+                <span>Results auto-route to <strong className="text-gray-700">Processing</strong> where merit filters (date, authority, SEO ≥ 30) run before passing to <strong className="text-gray-700">Review</strong>.</span>
               </div>
 
-              {/* Buttons */}
               <div className="flex gap-2 pt-0.5">
                 <button
                   onClick={handleSearch}
@@ -371,7 +397,7 @@ function MonitorsPanel() {
                   {searching !== null ? (
                     <><Loader2 size={11} className="animate-spin" />Searching…</>
                   ) : (
-                    <><Search size={11} />Search</>
+                    <><Search size={11} />Search Medical Sources</>
                   )}
                 </button>
                 <button
@@ -387,12 +413,12 @@ function MonitorsPanel() {
           {/* ── Monitor list ──────────────────────────────────────────── */}
           {monitorList.length === 0 ? (
             <div className="px-4 py-3 text-center">
-              <p className="text-[10px] text-gray-400 mb-1.5">No searches running yet</p>
+              <p className="text-[10px] text-gray-400 mb-1.5">No medical searches running yet</p>
               <button
                 onClick={() => { setShowForm(true); setIsExpanded(true); }}
                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:underline"
               >
-                <Search size={10} /> Start a research search
+                <Search size={10} /> Start a medical research search
               </button>
             </div>
           ) : (
@@ -423,9 +449,7 @@ function MonitorsPanel() {
                       </div>
                     </div>
 
-                    {/* Controls: show on hover */}
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Manual run now */}
                       <button
                         onClick={async () => {
                           setSearching(m.id);
@@ -433,6 +457,7 @@ function MonitorsPanel() {
                             await apiFetch(`/api/monitors/${m.id}/run`, "POST");
                             await qc.invalidateQueries({ queryKey: ["inbox"] });
                             await qc.invalidateQueries({ queryKey: ["monitors"] });
+                            onSearchDone();
                           } finally { setSearching(null); }
                         }}
                         disabled={searching !== null}
@@ -443,7 +468,7 @@ function MonitorsPanel() {
                       </button>
 
                       {m.status === "active" ? (
-                        <button onClick={() => updateMonitor.mutate({ id: m.id, status: "paused" })} title="Pause auto-refresh"
+                        <button onClick={() => updateMonitor.mutate({ id: m.id, status: "paused" })} title="Pause"
                           className="p-1 rounded hover:bg-amber-100 text-gray-400 hover:text-amber-600 transition-colors">
                           <Pause size={10} />
                         </button>
@@ -494,19 +519,18 @@ function MonitorsPanel() {
 
 // ── Filter tabs ───────────────────────────────────────────────────────────────
 
-const FILTERS: { key: string; label: string }[] = [
-  { key: "all",        label: "All Items"   },
-  { key: "new",        label: "New"         },
-  { key: "processing", label: "Processing"  },
-  { key: "reviewed",   label: "Reviewed"    },
-  { key: "archived",   label: "Archived"    },
+const FILTERS: { key: string; label: string; description: string }[] = [
+  { key: "all",        label: "All Items",  description: "All collected items" },
+  { key: "new",        label: "New",        description: "Awaiting processing" },
+  { key: "processing", label: "Processing", description: "Merit filter running" },
+  { key: "reviewed",   label: "Review",     description: "Passed all merit checks" },
+  { key: "archived",   label: "Filtered",   description: "Did not meet merit criteria" },
 ];
 
 // ── Item list entry ───────────────────────────────────────────────────────────
 
 function ItemEntry({
-  item, active, selected, isNew,
-  onClick, onToggleSelect,
+  item, active, selected, isNew, onClick, onToggleSelect,
 }: {
   item: CollectedItemRow;
   active: boolean;
@@ -515,6 +539,8 @@ function ItemEntry({
   onClick: () => void;
   onToggleSelect: (e: React.MouseEvent) => void;
 }) {
+  const seo = item.analysis ? seoColor(item.analysis.seoScore) : null;
+
   return (
     <div
       className={cn(
@@ -524,7 +550,7 @@ function ItemEntry({
         isNew && !active && !selected ? "border-l-2 border-l-blue-300" : "",
       )}
     >
-      {/* Checkbox column */}
+      {/* Checkbox */}
       <div
         className="flex items-center pl-2 pr-1 shrink-0 cursor-pointer"
         onClick={onToggleSelect}
@@ -540,23 +566,40 @@ function ItemEntry({
       {/* Item content */}
       <button className="flex-1 text-left px-2 py-3 min-w-0" onClick={onClick}>
         <div className="flex items-start justify-between gap-2 mb-1.5">
-          <p className={cn("text-xs font-semibold leading-snug line-clamp-2 flex-1",
+          <p className={cn("text-xs font-semibold leading-snug line-clamp-2 flex-1 min-w-0 break-words",
             active ? "text-brand-800" : "text-gray-800")}>
             {isNew && (
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5 align-middle" />
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5 align-middle shrink-0" />
             )}
             {item.title}
           </p>
-          {item.analysis && (
-            <span className={cn("shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border",
-              priorityColor(item.analysis.priorityScore))}>
-              {item.analysis.priorityScore}
-            </span>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {seo && (
+              <span className={cn("text-[9px] font-bold px-1 py-0.5 rounded border", seo.bg, seo.text)}>
+                SEO {item.analysis!.seoScore}
+              </span>
+            )}
+            {item.analysis && (
+              <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded border",
+                priorityColor(item.analysis.priorityScore))}>
+                {item.analysis.priorityScore}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <SourceBadge source={item.source} />
           <StatusBadge status={item.status} />
+          {item.status === "processing" && (
+            <span className="inline-flex items-center gap-1 text-[9px] text-amber-600 font-semibold">
+              <Filter size={8} className="animate-pulse" />Merit check…
+            </span>
+          )}
+          {item.analysis?.meritPassed === false && (
+            <span className="inline-flex items-center gap-1 text-[9px] text-red-500 font-semibold">
+              <AlertTriangle size={8} />Filtered
+            </span>
+          )}
           {item.url && (
             <a href={item.url} target="_blank" rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -565,7 +608,7 @@ function ItemEntry({
               <ExternalLink size={9} />
             </a>
           )}
-          <span className="text-[10px] text-gray-400 ml-auto">{timeAgo(item.collectedAt)}</span>
+          <span className="text-[10px] text-gray-400 ml-auto shrink-0">{timeAgo(item.collectedAt)}</span>
         </div>
         {item.author && <p className="text-[10px] text-gray-400 mt-1 truncate">{item.author}</p>}
       </button>
@@ -579,22 +622,180 @@ function NoSelection() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gray-50">
       <div className="w-14 h-14 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mb-4 shadow-sm">
-        <InboxIcon size={24} className="text-gray-400" />
+        <Stethoscope size={24} className="text-gray-400" />
       </div>
-      <p className="text-sm font-semibold text-gray-700">Select an item</p>
-      <p className="text-xs text-gray-400 mt-1">Choose an item from the list to view its content and AI analysis</p>
+      <p className="text-sm font-semibold text-gray-700">Select a medical item</p>
+      <p className="text-xs text-gray-400 mt-1 max-w-xs">Choose an item from the list to view its content, AI analysis, and SEO metrics</p>
     </div>
   );
 }
 
 function EmptyList({ status }: { status: string }) {
+  const msg: Record<string, { title: string; sub: string }> = {
+    processing: { title: "Nothing processing right now", sub: "Start a medical search — items will appear here while merit filters run" },
+    reviewed:   { title: "No items in Review", sub: "Items that pass all merit checks (medical + SEO ≥ 30) appear here" },
+    archived:   { title: "No filtered items", sub: "Items that fail medical relevance or SEO checks are archived here" },
+    new:        { title: "No new items", sub: "New items from medical monitors will appear here" },
+    all:        { title: "No items yet", sub: "Start a medical research search to begin collecting intelligence" },
+  };
+  const { title, sub } = msg[status] ?? msg.all;
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center px-6">
       <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mb-3">
         <InboxIcon size={18} className="text-gray-400" />
       </div>
-      <p className="text-xs font-medium text-gray-500">No {status === "all" ? "" : status} items</p>
-      <p className="text-xs text-gray-400 mt-1">New items from monitors will appear here</p>
+      <p className="text-xs font-semibold text-gray-600">{title}</p>
+      <p className="text-xs text-gray-400 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+// ── Processing merit panel ────────────────────────────────────────────────────
+
+function ProcessingMeritPanel({ item }: { item: CollectedItemRow }) {
+  const checks = [
+    { label: "Medical relevance scan",  done: !!item.analysis, pass: item.analysis?.isMedical },
+    { label: "Date / timeline match",   done: !!item.analysis, pass: true },
+    { label: "Author authority check",  done: !!item.analysis, pass: item.analysis ? item.analysis.authorAuthority >= 40 : undefined },
+    { label: "SEO merit threshold ≥ 30",done: !!item.analysis, pass: item.analysis ? item.analysis.seoScore >= 30 : undefined },
+  ];
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <Filter size={14} className="text-amber-500 shrink-0 animate-pulse" />
+        <p className="text-sm font-semibold text-amber-800">Merit Filter Running</p>
+        {!item.analysis && <Loader2 size={12} className="text-amber-500 animate-spin ml-auto" />}
+      </div>
+      <p className="text-xs text-amber-600">
+        Each item must pass all checks to advance to Review. Failures go to Filtered.
+      </p>
+      <div className="space-y-1.5">
+        {checks.map(({ label, done, pass }) => (
+          <div key={label} className="flex items-center gap-2">
+            {!done ? (
+              <Loader2 size={11} className="text-amber-400 animate-spin shrink-0" />
+            ) : pass ? (
+              <CheckCircle size={11} className="text-green-500 shrink-0" />
+            ) : (
+              <AlertTriangle size={11} className="text-red-500 shrink-0" />
+            )}
+            <span className={cn("text-[11px]",
+              !done ? "text-amber-600"
+              : pass ? "text-green-700 font-medium"
+              : "text-red-600 font-medium line-through")}>
+              {label}
+            </span>
+            {done && pass !== undefined && (
+              <span className={cn("ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full",
+                pass ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600")}>
+                {pass ? "PASS" : "FAIL"}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── SEO Panel ─────────────────────────────────────────────────────────────────
+
+function SEOPanel({ analysis }: { analysis: NonNullable<CollectedItemRow["analysis"]> }) {
+  const seo = seoColor(analysis.seoScore);
+
+  const metrics = [
+    {
+      label: "Overall SEO Score",
+      value: `${analysis.seoScore}/100`,
+      sub: seo.label,
+      color: seo.text,
+      bg: seo.bg,
+      bar: analysis.seoScore,
+      barColor: seo.bar,
+      icon: BarChart3,
+    },
+    {
+      label: "Author Authority",
+      value: `${analysis.authorAuthority}/100`,
+      sub: analysis.authorAuthority >= 70 ? "High authority" : analysis.authorAuthority >= 50 ? "Moderate" : "Low authority",
+      color: analysis.authorAuthority >= 70 ? "text-green-700" : analysis.authorAuthority >= 50 ? "text-amber-700" : "text-red-600",
+      bg: analysis.authorAuthority >= 70 ? "bg-green-50 border-green-200" : analysis.authorAuthority >= 50 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200",
+      bar: analysis.authorAuthority,
+      barColor: analysis.authorAuthority >= 70 ? "bg-green-500" : analysis.authorAuthority >= 50 ? "bg-amber-500" : "bg-red-400",
+      icon: Star,
+    },
+  ];
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-5 py-3 border-b border-gray-100 bg-gradient-to-r from-teal-50 to-brand-50 flex items-center gap-2">
+        <TrendingUp size={13} className="text-teal-600" />
+        <span className="text-xs font-semibold text-teal-700 uppercase tracking-wider">SEO & Authority Analysis</span>
+        <span className={cn("ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border", seo.bg, seo.text)}>
+          {seo.label}
+        </span>
+      </div>
+      <div className="p-5 space-y-4">
+
+        {/* Score cards */}
+        <div className="grid grid-cols-2 gap-3">
+          {metrics.map(({ label, value, sub, color, bg, bar, barColor, icon: Icon }) => (
+            <div key={label} className={cn("rounded-xl border p-3", bg)}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Icon size={11} className={color} />
+                <p className="text-[10px] uppercase font-semibold text-gray-400">{label}</p>
+              </div>
+              <p className={cn("text-2xl font-bold", color)}>{value}</p>
+              <p className={cn("text-[10px] font-medium mt-0.5", color)}>{sub}</p>
+              <div className="mt-2 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${bar}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* SEO Keywords */}
+        {analysis.seoKeywords && analysis.seoKeywords.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Tag size={11} className="text-teal-500" />
+              <p className="text-[10px] uppercase font-semibold text-gray-400">Medical SEO Keywords Detected</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {analysis.seoKeywords.map((kw) => (
+                <span key={kw} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 border border-teal-200 text-teal-700 text-[10px] font-semibold">
+                  <Hash size={8} />{kw}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SEO breakdown */}
+        <div className="border border-gray-100 rounded-xl overflow-hidden">
+          <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">On-Page SEO Metrics</p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {[
+              { metric: "Medical Relevance", value: analysis.isMedical ? "✓ Confirmed medical content" : "✗ Non-medical content", good: analysis.isMedical },
+              { metric: "SEO Score Rating", value: `${analysis.seoScore}/100 — ${seo.label}`, good: analysis.seoScore >= 55 },
+              { metric: "Authority Tier", value: analysis.authorAuthority >= 70 ? "High — reputable source" : analysis.authorAuthority >= 50 ? "Moderate — general source" : "Low — unverified source", good: analysis.authorAuthority >= 50 },
+              { metric: "Merit Status", value: analysis.meritPassed ? "✓ Passed all merit filters" : "✗ Failed merit filters", good: analysis.meritPassed },
+            ].map(({ metric, value, good }) => (
+              <div key={metric} className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] text-gray-500">{metric}</span>
+                <span className={cn("text-[11px] font-medium", good ? "text-green-700" : "text-red-600")}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-[10px] text-gray-400 italic">
+          SEO metrics calculated from medical keyword density, title quality, content length, and source authority. Items scoring below 30 are automatically filtered out.
+        </p>
+      </div>
     </div>
   );
 }
@@ -609,12 +810,19 @@ function ItemDetail({
   isPending: boolean;
 }) {
   const a = item.analysis;
+  // Clean description: prefer AI-generated description, then strip HTML from content
+  const cleanDescription = a?.description || stripHtml(item.content);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex items-start justify-between gap-4">
+      {/* Header */}
+      <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-gray-900 leading-snug">{item.title}</h2>
+            {/* Title — responsive, wraps on small screens */}
+            <h2 className="text-sm sm:text-base font-bold text-gray-900 leading-snug break-words">
+              {item.title}
+            </h2>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               <SourceBadge source={item.source} />
               <StatusBadge status={item.status} />
@@ -623,23 +831,28 @@ function ItemDetail({
                   Priority {a.priorityScore}
                 </span>
               )}
+              {a && (
+                <span className={cn("text-xs font-bold px-2 py-0.5 rounded border", seoColor(a.seoScore).bg, seoColor(a.seoScore).text)}>
+                  SEO {a.seoScore}
+                </span>
+              )}
               <span className="text-xs text-gray-400">{timeAgo(item.collectedAt)}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <div className="flex items-center gap-2 flex-wrap">
             {item.url && (
               <a href={item.url} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-brand-200 hover:bg-brand-50 text-brand-700 text-xs font-semibold transition-colors">
                 <ExternalLink size={12} />View Source
               </a>
             )}
-            {item.status !== "reviewed" && (
+            {item.status !== "reviewed" && item.status !== "archived" && (
               <button onClick={() => onStatusChange("reviewed")} disabled={isPending}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold transition-colors disabled:opacity-60">
-                <CheckCircle size={13} />Mark Reviewed
+                <CheckCircle size={13} />Approve
               </button>
             )}
-            {item.status !== "archived" && (
+            {item.status === "reviewed" && (
               <button onClick={() => onStatusChange("archived")} disabled={isPending}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-xs font-semibold transition-colors disabled:opacity-60">
                 <Archive size={13} />Archive
@@ -656,24 +869,36 @@ function ItemDetail({
       </div>
 
       <div className="flex-1 overflow-y-auto bg-gray-50">
-        <div className="max-w-3xl mx-auto px-6 py-6 space-y-5">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+
+          {/* Processing merit panel */}
           {item.status === "processing" && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-              <Loader2 size={16} className="text-amber-500 animate-spin shrink-0" />
+            <ProcessingMeritPanel item={item} />
+          )}
+
+          {/* Filtered out notice */}
+          {item.status === "archived" && a?.meritPassed === false && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-amber-800">AI analysis in progress</p>
-                <p className="text-xs text-amber-600">This item is being processed through the intelligence pipeline…</p>
+                <p className="text-sm font-semibold text-red-800">Filtered Out — Did Not Pass Merit Checks</p>
+                <p className="text-xs text-red-600 mt-1">
+                  {!a.isMedical ? "This item was not identified as medically relevant content. " : ""}
+                  {a.seoScore < 30 ? `SEO score (${a.seoScore}) is below the threshold of 30. ` : ""}
+                  Items must be medical and score ≥ 30 to advance to Review.
+                </p>
               </div>
             </div>
           )}
 
+          {/* Original Content */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
               <FolderOpen size={13} className="text-gray-400" />
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Original Content</span>
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Article Details</span>
             </div>
             <div className="p-5">
-              <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-xs">
                 <div className="flex items-center gap-2">
                   <Globe size={12} className="text-gray-400 shrink-0" />
                   <div>
@@ -684,7 +909,7 @@ function ItemDetail({
                 {item.author && (
                   <div className="flex items-center gap-2">
                     <User size={12} className="text-gray-400 shrink-0" />
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-gray-400 text-[10px] uppercase font-semibold">Author</p>
                       <p className="text-gray-700 font-medium truncate">{item.author}</p>
                     </div>
@@ -693,17 +918,17 @@ function ItemDetail({
                 <div className="flex items-center gap-2">
                   <Calendar size={12} className="text-gray-400 shrink-0" />
                   <div>
-                    <p className="text-gray-400 text-[10px] uppercase font-semibold">Collected</p>
+                    <p className="text-gray-400 text-[10px] uppercase font-semibold">Published</p>
                     <p className="text-gray-700 font-medium">{new Date(item.collectedAt).toLocaleString()}</p>
                   </div>
                 </div>
                 {item.url && (
-                  <div className="flex items-center gap-2 col-span-2">
-                    <ExternalLink size={12} className="text-gray-400 shrink-0" />
+                  <div className="flex items-start gap-2 sm:col-span-2">
+                    <ExternalLink size={12} className="text-gray-400 shrink-0 mt-0.5" />
                     <div className="min-w-0">
                       <p className="text-gray-400 text-[10px] uppercase font-semibold">Source URL</p>
                       <a href={item.url} target="_blank" rel="noopener noreferrer"
-                        className="text-brand-600 hover:underline font-medium text-xs truncate block">
+                        className="text-brand-600 hover:underline font-medium text-xs break-all">
                         {item.url}
                       </a>
                     </div>
@@ -719,17 +944,23 @@ function ItemDetail({
                   ))}
                 </div>
               )}
-              <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap border-t border-gray-100 pt-4">
-                {item.content}
+              {/* Clean description — no HTML */}
+              <div className="text-sm text-gray-700 leading-relaxed border-t border-gray-100 pt-4 break-words">
+                <p className="text-[10px] uppercase font-semibold text-gray-400 mb-2">Description</p>
+                <p>{cleanDescription}</p>
               </div>
             </div>
           </div>
 
+          {/* SEO Panel — shown when we have analysis */}
+          {a && <SEOPanel analysis={a} />}
+
+          {/* AI Analysis */}
           {a ? (
             <div className="bg-white rounded-xl border border-brand-100 overflow-hidden">
               <div className="px-5 py-3 border-b border-brand-100 bg-brand-50 flex items-center gap-2">
                 <Brain size={13} className="text-brand-500" />
-                <span className="text-xs font-semibold text-brand-700 uppercase tracking-wider">AI Analysis</span>
+                <span className="text-xs font-semibold text-brand-700 uppercase tracking-wider">Medical AI Analysis</span>
                 <span className="ml-auto text-[10px] text-brand-400">Processed {timeAgo(a.processedAt)}</span>
               </div>
               <div className="p-5 space-y-5">
@@ -737,11 +968,11 @@ function ItemDetail({
                   <p className="text-[10px] uppercase font-semibold text-gray-400 mb-1">Summary</p>
                   <p className="text-sm text-gray-700 leading-relaxed">{a.summary}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {[
-                    { icon: Activity,   label: "Intent",    val: a.intent   },
-                    { icon: Building2,  label: "Industry",  val: a.industry  },
-                    { icon: FolderOpen, label: "Category",  val: a.category  },
+                    { icon: Activity,   label: "Intent",   val: a.intent   },
+                    { icon: Building2,  label: "Industry", val: a.industry  },
+                    { icon: FolderOpen, label: "Category", val: a.category  },
                   ].map(({ icon: Icon, label, val }) => (
                     <div key={label} className="bg-gray-50 rounded-lg p-3">
                       <div className="flex items-center gap-1.5 mb-1">
@@ -782,7 +1013,7 @@ function ItemDetail({
                 <div>
                   <div className="flex items-center gap-1.5 mb-2">
                     <Send size={11} className="text-brand-500" />
-                    <p className="text-[10px] uppercase font-semibold text-gray-400">Suggested Professional Reply</p>
+                    <p className="text-[10px] uppercase font-semibold text-gray-400">Suggested Professional Response</p>
                   </div>
                   <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 text-sm text-gray-700 leading-relaxed">
                     {a.suggestedReply}
@@ -794,8 +1025,8 @@ function ItemDetail({
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-center gap-3">
               <Clock size={15} className="text-blue-400 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-blue-800">Queued for analysis</p>
-                <p className="text-xs text-blue-600">This item will be processed by the AI pipeline shortly.</p>
+                <p className="text-sm font-semibold text-blue-800">Queued for medical analysis</p>
+                <p className="text-xs text-blue-600">This item will be processed through the AI pipeline shortly (every 6 seconds).</p>
               </div>
             </div>
           ) : null}
@@ -808,12 +1039,11 @@ function ItemDetail({
 // ── Main Inbox page ───────────────────────────────────────────────────────────
 
 export default function Inbox() {
-  const [selectedId, setSelectedId]         = useState<number | null>(null);
-  const [statusFilter, setStatusFilter]     = useState<string>("all");
-  const [selectedIds, setSelectedIds]       = useState<Set<number>>(new Set());
-  const [newItemsAlert, setNewItemsAlert]   = useState(0);  // count of newly arrived items
-  const prevAllCount                        = useRef<number | null>(null);
-  const prevNewIds                          = useRef<Set<number>>(new Set());  // IDs seen as "new" last tick
+  const [selectedId, setSelectedId]       = useState<number | null>(null);
+  const [statusFilter, setStatusFilter]   = useState<string>("all");
+  const [selectedIds, setSelectedIds]     = useState<Set<number>>(new Set());
+  const [newItemsAlert, setNewItemsAlert] = useState(0);
+  const prevAllCount                      = useRef<number | null>(null);
   const qc = useQueryClient();
 
   const { data: listData, isLoading, dataUpdatedAt } = useQuery<ListData>({
@@ -841,7 +1071,6 @@ export default function Inbox() {
   const items  = listData?.items  ?? [];
   const counts = listData?.counts ?? { new: 0, processing: 0, reviewed: 0, archived: 0, all: 0 };
 
-  // ── Detect newly arrived items ──────────────────────────────────────────────
   useEffect(() => {
     if (prevAllCount.current === null) {
       prevAllCount.current = counts.all;
@@ -853,11 +1082,8 @@ export default function Inbox() {
     prevAllCount.current = counts.all;
   }, [counts.all]);
 
-  // Items that are currently "new" status (recently arrived)
   const newStatusIds = new Set(items.filter((i) => i.status === "new").map((i) => i.id));
-
-  // ── Selection helpers ───────────────────────────────────────────────────────
-  const allSelected = items.length > 0 && items.every((i) => selectedIds.has(i.id));
+  const allSelected  = items.length > 0 && items.every((i) => selectedIds.has(i.id));
   const someSelected = selectedIds.size > 0;
 
   function toggleSelect(id: number) {
@@ -869,11 +1095,8 @@ export default function Inbox() {
   }
 
   function toggleSelectAll() {
-    if (allSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(items.map((i) => i.id)));
-    }
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(items.map((i) => i.id)));
   }
 
   function handleExport() {
@@ -882,20 +1105,24 @@ export default function Inbox() {
     exportToXLS(toExport);
   }
 
-  // Format last-updated time
+  // Called by MonitorsPanel after a search run — auto-switch to processing tab
+  const handleSearchDone = useCallback(() => {
+    setStatusFilter("processing");
+    setSelectedIds(new Set());
+  }, []);
+
   const secondsAgo = dataUpdatedAt ? Math.round((Date.now() - dataUpdatedAt) / 1000) : null;
 
   return (
     <div className="flex-1 flex overflow-hidden bg-white min-h-0">
-      {/* ── Left panel ─────────────────────────────────────────────────── */}
-      <div className="w-80 shrink-0 border-r border-gray-200 flex flex-col overflow-hidden bg-white">
+      {/* ── Left panel ──────────────────────────────────────────────────── */}
+      <div className="w-72 sm:w-80 shrink-0 border-r border-gray-200 flex flex-col overflow-hidden bg-white">
 
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-100 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <h1 className="text-sm font-bold text-gray-900 shrink-0">Intelligence Inbox</h1>
-              {/* LIVE badge */}
+              <h1 className="text-sm font-bold text-gray-900 shrink-0">Medical Intelligence</h1>
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-50 border border-green-200 text-[9px] font-bold text-green-700 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 LIVE
@@ -922,7 +1149,7 @@ export default function Inbox() {
             <p className="text-xs text-blue-700 font-semibold flex-1">
               {newItemsAlert} new item{newItemsAlert > 1 ? "s" : ""} arrived
             </p>
-            <button onClick={() => { setStatusFilter("new"); setNewItemsAlert(0); }}
+            <button onClick={() => { setStatusFilter("processing"); setNewItemsAlert(0); }}
               className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline">
               View
             </button>
@@ -934,10 +1161,10 @@ export default function Inbox() {
 
         {/* Monitors panel */}
         <div className="shrink-0">
-          <MonitorsPanel />
+          <MonitorsPanel onSearchDone={handleSearchDone} />
         </div>
 
-        {/* Filter tabs + select-all row */}
+        {/* Filter tabs + select-all */}
         <div className="flex flex-col px-2 py-2 gap-0.5 border-b border-gray-100 shrink-0">
           {/* Select-all row */}
           <div className="flex items-center gap-2 px-3 py-1.5">
@@ -945,9 +1172,7 @@ export default function Inbox() {
               className={cn("w-4 h-4 rounded border-2 flex items-center justify-center cursor-pointer transition-colors shrink-0",
                 allSelected ? "bg-blue-500 border-blue-500" : "border-gray-300 hover:border-blue-400")}>
               {allSelected && <CheckCircle size={10} className="text-white" />}
-              {!allSelected && someSelected && (
-                <span className="w-2 h-0.5 bg-blue-400 rounded" />
-              )}
+              {!allSelected && someSelected && <span className="w-2 h-0.5 bg-blue-400 rounded" />}
             </div>
             <span className="text-[10px] text-gray-500 font-medium flex-1">
               {someSelected
@@ -963,19 +1188,21 @@ export default function Inbox() {
             )}
           </div>
 
-          {FILTERS.map(({ key, label }) => {
+          {FILTERS.map(({ key, label, description }) => {
             const count = counts[key as keyof typeof counts] ?? 0;
             const isActive = statusFilter === key;
             return (
               <button key={key} onClick={() => { setStatusFilter(key); setSelectedIds(new Set()); }}
                 className={cn("flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors",
-                  isActive ? "bg-brand-50 text-brand-700" : "text-gray-600 hover:bg-gray-50")}>
+                  isActive ? "bg-brand-50 text-brand-700" : "text-gray-600 hover:bg-gray-50")}
+                title={description}>
                 <span>{label}</span>
                 {count > 0 && (
                   <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold min-w-[18px] text-center",
-                    key === "new" ? "bg-blue-500 text-white"
+                    key === "new"        ? "bg-blue-500 text-white"
                     : key === "processing" ? "bg-amber-500 text-white"
-                    : isActive ? "bg-brand-200 text-brand-700"
+                    : key === "archived"   ? "bg-red-100 text-red-600"
+                    : isActive             ? "bg-brand-200 text-brand-700"
                     : "bg-gray-100 text-gray-500")}>
                     {count}
                   </span>
@@ -984,6 +1211,17 @@ export default function Inbox() {
             );
           })}
         </div>
+
+        {/* Processing merit info banner */}
+        {statusFilter === "processing" && counts.processing > 0 && (
+          <div className="mx-2 mt-1.5 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg shrink-0">
+            <div className="flex items-center gap-1.5">
+              <Filter size={10} className="text-amber-500 animate-pulse" />
+              <p className="text-[10px] text-amber-700 font-semibold">Merit filter running on {counts.processing} item{counts.processing !== 1 ? "s" : ""}…</p>
+            </div>
+            <p className="text-[9px] text-amber-500 mt-0.5">Checking medical relevance, date, authority &amp; SEO</p>
+          </div>
+        )}
 
         {/* Item list */}
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -1008,7 +1246,7 @@ export default function Inbox() {
           )}
         </div>
 
-        {/* Bulk action bar — fixed at bottom */}
+        {/* Bulk action bar */}
         {someSelected && (
           <div className="shrink-0 border-t border-blue-200 bg-blue-50 px-4 py-2.5 flex items-center gap-3">
             <span className="text-xs font-bold text-blue-700 flex-1">

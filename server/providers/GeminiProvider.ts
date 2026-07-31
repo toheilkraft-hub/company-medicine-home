@@ -11,6 +11,7 @@ import type {
   ModelInfo,
 } from "../../shared/types.js";
 import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
+import { buildMedicalPrompt, extractJSON, coerceAnalysis } from "./analyzeHelpers.js";
 
 /** Rewrite "no longer available" API errors into a clear user-facing message. */
 function wrapModelError(err: unknown, modelId: string): never {
@@ -250,42 +251,31 @@ Message: "${message}"`,
     content: string;
     source: string;
   }): Promise<ItemAnalysisResult> {
-    const prompt = `Analyse the following intelligence item and return a JSON object with exactly these fields:
-  summary (string, ≤50 words), intent (string), industry (string),
-  category (string), sentiment ("Positive"|"Negative"|"Neutral"|"Mixed"),
-  priorityScore (1-100 integer), confidenceScore (1-100 integer),
-  suggestedReply (string, professional reply ≤200 words)
+    const prompt = buildMedicalPrompt(item);
 
-Source: ${item.source}
-Title: ${item.title}
-Content: ${item.content}
-
-Return only valid JSON, no markdown fences.`;
-
-    // Try the configured model first; if unavailable, fall back to stable aliases.
+    // Try the configured model first; fall back to stable aliases on
+    // "model not available" errors only — rate-limit / auth errors surface immediately.
     const fallbackChain = [
       this.defaultModel,
       "gemini-2.0-flash",
       "gemini-1.5-flash",
       "gemini-flash-latest",
-    ].filter((m, i, arr) => arr.indexOf(m) === i); // deduplicate
+    ].filter((m, i, arr) => arr.indexOf(m) === i);
 
     let lastErr: unknown;
     for (const modelId of fallbackChain) {
       try {
         const response = await this.generateResponse(
           [{ role: "user", content: prompt }],
-          { model: modelId, maxTokens: 500, temperature: 0.2 }
+          { model: modelId, maxTokens: 700, temperature: 0.2 }
         );
-        // If a fallback model worked, update defaultModel so future calls skip retries
         if (modelId !== this.defaultModel) {
           this.defaultModel = modelId;
         }
-        return JSON.parse(response.content) as ItemAnalysisResult;
+        const raw = JSON.parse(extractJSON(response.content)) as unknown;
+        return coerceAnalysis(raw);
       } catch (err: any) {
         const msg: string = err?.message ?? String(err);
-        // Only fall through to the next model for "not available" errors.
-        // Rate-limit (429) and auth errors should surface immediately.
         if (
           msg.includes("429") ||
           msg.toLowerCase().includes("quota") ||

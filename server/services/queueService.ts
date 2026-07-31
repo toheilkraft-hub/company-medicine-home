@@ -103,14 +103,29 @@ export async function processQueue(systemUserId: number): Promise<void> {
             priorityScore: analysis.priorityScore,
             confidenceScore: analysis.confidenceScore,
             suggestedReply: analysis.suggestedReply,
+            description: analysis.description,
+            seoScore: analysis.seoScore,
+            seoKeywords: analysis.seoKeywords,
+            authorAuthority: analysis.authorAuthority,
+            meritPassed: analysis.meritPassed,
+            isMedical: analysis.isMedical,
             processedAt: new Date(),
           })
           .onConflictDoNothing();
 
-        // 4. Mark reviewed — clear failure count on success
+        // 4. Mark reviewed (or archive if merit filter explicitly failed).
+        // Use === false so that any unexpected undefined/null from a broken
+        // provider does NOT silently archive the item — it falls through to
+        // "reviewed" and the analyst can decide manually.
+        const nextStatus = analysis.meritPassed === false ? "archived" : "reviewed";
+        if (!analysis.meritPassed) {
+          logger.info(
+            `Queue: item ${item.id} filtered — not medical or low SEO (score ${analysis.seoScore}, medical ${analysis.isMedical})`
+          );
+        }
         await db
           .update(collectedItems)
-          .set({ status: "reviewed", updatedAt: new Date() })
+          .set({ status: nextStatus, updatedAt: new Date() })
           .where(eq(collectedItems.id, item.id));
 
         itemFailCounts.delete(item.id);

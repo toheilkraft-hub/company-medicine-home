@@ -190,82 +190,192 @@ export class MockProvider implements IProvider {
   }): Promise<ItemAnalysisResult> {
     await sleep(300 + Math.random() * 500);
 
-    const text = `${item.title} ${item.content}`.toLowerCase();
+    // Strip HTML tags from content for clean analysis
+    const cleanContent = item.content
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    // Industry detection
-    let industry = "General";
-    if (/health|medical|patient|clinical|hospital|therapy|mental|wellness|pharma|nurse|physician|icu|fda|hipaa/.test(text))
-      industry = "Healthcare";
-    else if (/tech|ai|software|digital|platform|app|data|algorithm|machine learning/.test(text))
-      industry = "Technology";
-    else if (/finance|invest|market|stock|fund|revenue|capital|series [ab]/.test(text))
-      industry = "Finance";
-    else if (/government|policy|regulation|law|legal|compliance/.test(text))
-      industry = "Regulatory";
+    const text = `${item.title} ${cleanContent}`.toLowerCase();
+    const contentWords = cleanContent.split(/\s+/).filter(Boolean);
 
-    // Category
-    let category = "General Discussion";
-    if (/partner|collab|opportunity|business development|integration/.test(text))
-      category = "Business Development";
+    // ── Medical relevance check ───────────────────────────────────────────────
+    const MEDICAL_KEYWORDS = [
+      "disease", "diagnosis", "diagnose", "treatment", "symptom", "patient",
+      "doctor", "medical", "health", "cancer", "therapy", "clinical", "syndrome",
+      "disorder", "drug", "medication", "surgery", "hospital", "physician",
+      "medicine", "immune", "virus", "bacteria", "infection", "pain", "chronic",
+      "acute", "mental health", "depression", "diabetes", "heart", "lung",
+      "kidney", "blood", "gene", "cell", "vaccine", "trial", "pharma",
+      "neurology", "oncology", "cardiology", "pathology", "anatomy", "genome",
+      "prognosis", "biopsy", "prescription", "dosage", "side effect",
+      "prevention", "epidemic", "pandemic", "outbreak", "mortality", "morbidity",
+      "condition", "ailment", "wellness", "healthcare", "surgical", "nursing",
+    ];
+    const foundMedical = MEDICAL_KEYWORDS.filter((kw) => text.includes(kw));
+    const isMedical = foundMedical.length >= 2;
+
+    // ── SEO Score (0-100) ─────────────────────────────────────────────────────
+    let seoScore = 0;
+
+    // Title length quality (0–25 pts)
+    const titleLen = item.title.length;
+    if (titleLen >= 30 && titleLen <= 70) seoScore += 25;
+    else if (titleLen >= 10 && titleLen <= 100) seoScore += 15;
+    else if (titleLen > 0) seoScore += 5;
+
+    // Content length (0–30 pts)
+    const wordCount = contentWords.length;
+    if (wordCount >= 300) seoScore += 30;
+    else if (wordCount >= 150) seoScore += 22;
+    else if (wordCount >= 80) seoScore += 14;
+    else if (wordCount >= 30) seoScore += 8;
+
+    // Medical keyword density (0–25 pts)
+    const keywordDensity = foundMedical.length / Math.max(1, wordCount / 100);
+    if (keywordDensity >= 5) seoScore += 25;
+    else if (keywordDensity >= 3) seoScore += 18;
+    else if (keywordDensity >= 1) seoScore += 10;
+    else seoScore += 3;
+
+    // Source authority (0–20 pts)
+    const srcAuthority =
+      item.source === "web" ? 20
+      : item.source === "rss" ? 18
+      : item.source === "reddit" ? 12
+      : 10;
+    seoScore += srcAuthority;
+
+    seoScore = Math.min(100, Math.max(0, seoScore));
+
+    // Top SEO keywords (unique medical keywords found, up to 8)
+    const seoKeywords = [...new Set(foundMedical)].slice(0, 8);
+
+    // ── Author authority (0-100) ──────────────────────────────────────────────
+    let authorAuthority =
+      item.source === "web" ? 72
+      : item.source === "rss" ? 68
+      : item.source === "reddit" ? 42
+      : 55;
+    authorAuthority += Math.floor((Math.random() - 0.5) * 16);
+    authorAuthority = Math.min(100, Math.max(20, authorAuthority));
+
+    // ── Merit: must be medical AND seoScore ≥ 30 ─────────────────────────────
+    const meritPassed = isMedical && seoScore >= 30;
+
+    // ── Clean description (first 120 words, no HTML) ──────────────────────────
+    const description =
+      contentWords.slice(0, 120).join(" ") +
+      (contentWords.length > 120 ? "…" : "");
+
+    // ── Industry ─────────────────────────────────────────────────────────────
+    let industry = "Healthcare"; // Medical-focused — default to Healthcare
+    if (/tech|ai|software|digital|platform|app|data|algorithm|machine learning/.test(text))
+      industry = "Health Technology";
+    else if (/finance|invest|market|stock|fund|revenue|capital/.test(text))
+      industry = "Health Finance";
+    else if (/government|policy|regulation|law|legal|compliance|fda|hipaa/.test(text))
+      industry = "Health Regulatory";
     else if (/research|study|trial|evidence|clinical|published|journal|nature/.test(text))
-      category = "Clinical Research";
-    else if (/product|feature|launch|release|demo|pricing|purchase/.test(text))
-      category = "Product";
-    else if (/support|help|issue|problem|complaint|frustrated|burning out/.test(text))
-      category = "Support & Feedback";
-    else if (/news|report|article|analysis|market|raises|funding/.test(text))
-      category = "News & Analysis";
-    else if (/complaint|negative|fail|risk|dangerous|concern/.test(text))
-      category = "Risk & Concern";
+      industry = "Medical Research";
 
-    // Sentiment
-    const positiveWords = (text.match(/\b(great|excellent|amazing|positive|success|improve|benefit|effective|breakthrough|cleared|landmark|impressive|love|helpful)\b/g) ?? []).length;
-    const negativeWords = (text.match(/\b(problem|issue|fail|risk|concern|bad|negative|difficult|challenge|frustrated|burning|dangerous|mislead|error)\b/g) ?? []).length;
+    // ── Category ─────────────────────────────────────────────────────────────
+    let category = "Medical News";
+    if (/research|study|trial|evidence|clinical|published|journal|nature/.test(text))
+      category = "Clinical Research";
+    else if (/treatment|therapy|drug|medication|prescription|dosage|surgical/.test(text))
+      category = "Treatment & Therapy";
+    else if (/symptom|diagnosis|diagnose|test|screening|biopsy/.test(text))
+      category = "Diagnosis & Symptoms";
+    else if (/prevention|vaccine|immunisation|public health|epidemic|pandemic/.test(text))
+      category = "Prevention & Public Health";
+    else if (/mental|depression|anxiety|psychiatric|psychology|behavioural/.test(text))
+      category = "Mental Health";
+    else if (/heart|cardio|stroke|blood pressure|cardiovascular/.test(text))
+      category = "Cardiology";
+    else if (/cancer|oncology|tumour|tumor|chemotherapy|radiation/.test(text))
+      category = "Oncology";
+
+    // ── Sentiment ─────────────────────────────────────────────────────────────
+    const positiveWords = (text.match(/\b(breakthrough|effective|safe|improved|success|benefit|positive|promising|advance|recover|cure|heal|hope)\b/g) ?? []).length;
+    const negativeWords = (text.match(/\b(risk|danger|fatal|severe|critical|concern|failure|problem|complication|death|mortality|adverse)\b/g) ?? []).length;
     let sentiment = "Neutral";
     if (positiveWords > negativeWords + 1) sentiment = "Positive";
     else if (negativeWords > positiveWords + 1) sentiment = "Negative";
     else if (positiveWords > 0 && negativeWords > 0) sentiment = "Mixed";
 
-    // Intent
-    let intent = "Informational";
-    if (/partnership|partner|collab|work together|integrate/.test(text)) intent = "Partnership Inquiry";
-    else if (/demo|schedule|call|meeting|discuss/.test(text)) intent = "Sales Inquiry";
-    else if (/support|help|assistance|question|how do/.test(text)) intent = "Support Request";
-    else if (/feedback|opinion|review|experience|my experience/.test(text)) intent = "User Feedback";
-    else if (/research|study|published|findings|data/.test(text)) intent = "Research Publication";
-    else if (/market|report|analysis|industry|growth/.test(text)) intent = "Market Intelligence";
-    else if (/media|press|interview|journalist|correspondent/.test(text)) intent = "Media Inquiry";
+    // ── Intent ────────────────────────────────────────────────────────────────
+    let intent = "Medical Research";
+    if (/treatment|therapy|cure|drug|medication|prescription/.test(text))
+      intent = "Treatment Information";
+    else if (/symptom|diagnose|diagnosis|test|screening/.test(text))
+      intent = "Diagnostic Information";
+    else if (/prevention|vaccine|immunisation|protect/.test(text))
+      intent = "Prevention Advice";
+    else if (/study|trial|research|published|journal|findings/.test(text))
+      intent = "Research Publication";
+    else if (/news|report|article|announce|update/.test(text))
+      intent = "Medical News";
+    else if (/support|help|assistance|advice/.test(text))
+      intent = "Patient Support";
 
-    // Priority: higher for sales/partnership, lower for general news
-    let base = 50;
-    if (intent === "Partnership Inquiry" || intent === "Sales Inquiry") base = 88;
-    else if (intent === "Support Request") base = 75;
-    else if (intent === "User Feedback") base = 65;
-    else if (intent === "Market Intelligence") base = 60;
-    else if (intent === "Research Publication") base = 65;
-    const priorityScore = Math.min(100, Math.max(1, base + Math.floor((Math.random() - 0.5) * 10)));
-    const confidenceScore = Math.min(100, Math.max(50, 78 + Math.floor(Math.random() * 20)));
+    // ── Priority score ────────────────────────────────────────────────────────
+    let base = 55;
+    if (intent === "Treatment Information") base = 78;
+    else if (intent === "Diagnostic Information") base = 82;
+    else if (intent === "Research Publication") base = 70;
+    else if (intent === "Prevention Advice") base = 72;
+    else if (negativeWords > 2) base = 85;
+    const priorityScore = Math.min(100, Math.max(1, base + Math.floor((Math.random() - 0.5) * 12)));
+    const confidenceScore = Math.min(100, Math.max(50, 76 + Math.floor(Math.random() * 22)));
 
-    // Summary — first ~30 words
-    const words = item.content.trim().split(/\s+/);
-    const summary = words.slice(0, 30).join(" ") + (words.length > 30 ? "…" : "");
+    // ── Summary ───────────────────────────────────────────────────────────────
+    const summary =
+      contentWords.slice(0, 35).join(" ") +
+      (contentWords.length > 35 ? "…" : "");
 
-    // Suggested reply
+    // ── Suggested professional reply ──────────────────────────────────────────
     let suggestedReply =
-      `Thank you for sharing this with us. We've reviewed your message and appreciate the insights. A member of our team will follow up within 2 business days.`;
-    if (intent === "Partnership Inquiry") {
-      suggestedReply = `Thank you for your interest in partnering with iHeal AI. We'd love to explore this opportunity further. Could you share more details about your organization and the specific collaboration you have in mind? A member of our partnerships team will be in touch within 48 hours.`;
-    } else if (intent === "Sales Inquiry") {
-      suggestedReply = `Thank you for your interest in iHeal AI. We'd be delighted to schedule a personalized demo tailored to your team's workflows. I'll reach out directly to confirm timing. In the meantime, please feel free to review our platform overview at iheal.ai/platform.`;
-    } else if (intent === "Support Request") {
-      suggestedReply = `Thank you for reaching out. We've received your request and our team is reviewing it. We aim to respond within 24 hours. Please check our documentation at docs.iheal.ai for immediate guidance.`;
+      "Thank you for sharing this medical research. Our clinical team will review and assess the relevance to our patient care protocols within 48 hours.";
+    if (intent === "Treatment Information") {
+      suggestedReply =
+        "This treatment information has been flagged for clinical review. Our medical team will evaluate the evidence base and determine whether this approach aligns with current best-practice guidelines. We'll share an assessment within 2 business days.";
+    } else if (intent === "Diagnostic Information") {
+      suggestedReply =
+        "Thank you for this diagnostic update. We've forwarded it to our clinical diagnostics team for evaluation. If the findings have immediate patient-safety implications, our review will be expedited.";
+    } else if (intent === "Research Publication") {
+      suggestedReply =
+        "This publication has been added to our medical intelligence queue. Our research team will assess its methodology, sample size, and clinical applicability and provide a summary review.";
+    } else if (intent === "Prevention Advice") {
+      suggestedReply =
+        "This prevention and public-health update has been shared with our epidemiology and wellness teams. We'll incorporate relevant guidance into our patient-facing communications.";
     } else if (sentiment === "Negative") {
-      suggestedReply = `We appreciate you bringing this to our attention and take all feedback seriously. We want to ensure your experience meets your expectations. Could you provide additional context so we can address this appropriately?`;
-    } else if (intent === "Media Inquiry") {
-      suggestedReply = `Thank you for reaching out. We'd be happy to connect with your editorial team. Please contact our communications team at press@iheal.ai to arrange an interview and receive our latest press kit.`;
+      suggestedReply =
+        "This item has been flagged as high-priority due to potential risk indicators. Our clinical safety team has been notified and will conduct an expedited review within 24 hours.";
     }
 
-    return { summary, intent, industry, category, sentiment, priorityScore, confidenceScore, suggestedReply };
+    return {
+      summary,
+      intent,
+      industry,
+      category,
+      sentiment,
+      priorityScore,
+      confidenceScore,
+      suggestedReply,
+      description,
+      seoScore,
+      seoKeywords,
+      authorAuthority,
+      meritPassed,
+      isMedical,
+    };
   }
 
   private buildResponse(messages: AIMessage[], options: GenerateOptions): string {

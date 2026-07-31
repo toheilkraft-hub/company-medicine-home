@@ -15,7 +15,8 @@ import inboxRoutes from "./routes/inbox.js";
 import collectRoutes from "./routes/collect.js";
 import collectorConfigRoutes from "./routes/collectorConfig.js";
 import monitorRoutes from "./routes/monitors.js";
-import { db } from "./config/db.js";
+import { db, pool } from "./config/db.js";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { users, settings, collectedItems, itemAnalysis } from "../shared/schema.js";
 import { eq, sql } from "drizzle-orm";
 
@@ -129,9 +130,26 @@ async function bootstrapGeminiFromEnv(userId: number): Promise<void> {
   }
 }
 
+// ─── Run pending Drizzle migrations ──────────────────────────────────────────
+// Applies any SQL files in drizzle/ that haven't been applied yet.
+// Safe to run on every startup — drizzle tracks applied migrations in __drizzle_migrations.
+async function runMigrations(): Promise<void> {
+  const migrationsFolder = path.join(__dirname, "../drizzle");
+  try {
+    await migrate(db, { migrationsFolder });
+    logger.info("Database migrations applied");
+  } catch (err: any) {
+    // Log but don't crash — db:push may have already applied schema changes directly
+    logger.warn("Migration runner warning (schema may already be up-to-date via db:push)", {
+      err: err?.message ?? String(err),
+    });
+  }
+}
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`iHeal AI server listening on port ${PORT}`);
+  await runMigrations();
   await bootstrapGuestUser();
   if (guestUserId !== null) {
     await bootstrapGeminiFromEnv(guestUserId);

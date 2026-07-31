@@ -13,6 +13,13 @@ export interface ItemAnalysisResult {
   priorityScore: number;
   confidenceScore: number;
   suggestedReply: string;
+  // SEO & Medical Merit
+  description: string;
+  seoScore: number;
+  seoKeywords: string[];
+  authorAuthority: number;
+  meritPassed: boolean;
+  isMedical: boolean;
 }
 
 export type ItemStatus = "new" | "processing" | "reviewed" | "archived";

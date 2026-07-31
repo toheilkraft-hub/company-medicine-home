@@ -131,9 +131,9 @@ export async function fetchRedditItems(
 
     return items.slice(0, 15);
   } catch (directErr: any) {
-    // Fallback: use HN Algolia (closest open Q&A/discussion source)
-    logger.warn(`Reddit direct fetch failed, using HN fallback`, { reason: directErr?.message });
-    return fetchHNItems(topic, since, timeFilter);
+    // Fallback: use Google News (always available, no auth needed)
+    logger.warn(`Reddit direct fetch failed, using Google News fallback`, { reason: directErr?.message });
+    return fetchGoogleNewsItems(topic);
   }
 }
 
@@ -217,7 +217,25 @@ async function fetchForSource(
   }
 }
 
-// ── Ingest items into the DB (dedup by URL) ───────────────────────────────────
+// ── Medical relevance pre-filter ──────────────────────────────────────────────
+
+const MEDICAL_PREFILTER = [
+  "disease", "diagnosis", "treatment", "symptom", "patient", "doctor",
+  "medical", "health", "cancer", "therapy", "clinical", "syndrome",
+  "disorder", "drug", "medication", "surgery", "hospital", "physician",
+  "medicine", "immune", "virus", "bacteria", "infection", "pain",
+  "chronic", "acute", "mental health", "depression", "diabetes", "heart",
+  "lung", "kidney", "blood", "vaccine", "pharma", "neurology", "oncology",
+  "cardiology", "prevention", "epidemic", "pandemic", "condition", "wellness",
+];
+
+function isMedicallyRelevant(title: string, content: string): boolean {
+  const text = `${title} ${content}`.toLowerCase();
+  const matches = MEDICAL_PREFILTER.filter((kw) => text.includes(kw));
+  return matches.length >= 1; // at least 1 medical keyword to pass pre-filter
+}
+
+// ── Ingest items into the DB (dedup by URL, medical pre-filter) ───────────────
 
 async function ingestItems(
   userId: number,
@@ -228,6 +246,12 @@ async function ingestItems(
 ): Promise<number> {
   let ingested = 0;
   for (const item of items) {
+    // Pre-filter: only ingest medically relevant items
+    if (!isMedicallyRelevant(item.title, item.content)) {
+      logger.debug(`Monitor pre-filter: skipped non-medical item "${item.title.slice(0, 50)}"`);
+      continue;
+    }
+
     if (item.url) {
       const existing = await db
         .select({ id: collectedItems.id })
@@ -252,6 +276,18 @@ async function ingestItems(
   return ingested;
 }
 
+// ── Medical context enforcement ───────────────────────────────────────────────
+
+function enforceMedicalContext(topic: string): string {
+  const lower = topic.toLowerCase();
+  // Already has medical framing — don't double-up
+  const medicalSignals = ["medical", "health", "disease", "treatment", "symptom",
+    "diagnosis", "clinical", "patient", "medicine", "pharma", "doctor"];
+  if (medicalSignals.some((s) => lower.includes(s))) return topic;
+  // Append medical context so results stay in the health domain
+  return `${topic} medical health diagnosis treatment`;
+}
+
 // ── Run a single monitor ──────────────────────────────────────────────────────
 
 async function runMonitor(
@@ -260,6 +296,9 @@ async function runMonitor(
   const since = monitor.lastRunAt ?? undefined;
   const cfg = (monitor.sourceConfig ?? {}) as Record<string, string>;
   const timeFilter = (cfg.timeFilter as RedditTimeFilter) || "week";
+
+  // Always search with medical context enforced
+  const medicalTopic = enforceMedicalContext(monitor.topic);
 
   // Determine which sources to run
   let sources: string[];
@@ -275,7 +314,7 @@ async function runMonitor(
     try {
       const items = await fetchForSource(
         src,
-        monitor.topic,
+        medicalTopic,
         cfg,
         since ?? undefined,
         timeFilter,

@@ -41,9 +41,24 @@ iHeal AI is a full-stack web application providing:
 ## How to Run
 
 ```bash
-npm run dev   # starts Express (port 3001) + Vite dev server (port 5173)
-npm run build # builds the React SPA to dist/public/
-npm run db:push # push schema changes to database
+npm run dev      # starts Express (port 3001) + Vite dev server (port 5173)
+npm run build    # builds the React SPA to dist/public/
+npm run db:push  # push schema changes to database (dev only)
+```
+
+## Database Migrations
+
+Schema changes are committed as Drizzle migration files in `drizzle/`. The server applies pending migrations automatically on startup via `drizzle-orm/node-postgres/migrator`.
+
+To generate a new migration after schema changes:
+```bash
+npx drizzle-kit generate   # creates a new SQL file in drizzle/
+# server will apply it on next startup
+```
+
+To apply manually without restarting:
+```bash
+npx drizzle-kit push --force  # dev only — bypasses migration tracking
 ```
 
 ## Intelligence Pipeline Flow

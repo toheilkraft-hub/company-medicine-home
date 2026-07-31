@@ -118,6 +118,13 @@ export const itemAnalysis = pgTable("item_analysis", {
   priorityScore: integer("priority_score").notNull(),
   confidenceScore: integer("confidence_score").notNull(),
   suggestedReply: text("suggested_reply").notNull(),
+  // ── SEO & Merit fields ──────────────────────────────────────────────────────
+  description: text("description"),
+  seoScore: integer("seo_score").default(0),
+  seoKeywords: jsonb("seo_keywords").$type<string[]>().default([]),
+  authorAuthority: integer("author_authority").default(50),
+  meritPassed: boolean("merit_passed").default(true),
+  isMedical: boolean("is_medical").default(true),
   processedAt: timestamp("processed_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
