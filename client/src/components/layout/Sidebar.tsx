@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import {
-  Cpu, Inbox, MessageSquare, Satellite, Settings, User, X,
+  Cpu, Inbox, Satellite, Settings, User, X,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -31,7 +31,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
   const primaryNav = [
     { icon: Inbox, label: "Inbox", href: "/inbox", badge: newCount },
-    { icon: MessageSquare, label: "AI Chat", href: "/chat" },
     { icon: Satellite, label: "Collectors", href: "/collectors" },
   ];
 

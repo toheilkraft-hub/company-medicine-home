@@ -3,7 +3,6 @@ import { AuthProvider } from "./contexts/AuthContext";
 import PasswordGate from "./components/PasswordGate";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Chat from "./pages/Chat";
 import Settings from "./pages/Settings";
 import Profile from "./pages/Profile";
 import Inbox from "./pages/Inbox";
@@ -28,13 +27,6 @@ function Routes() {
 
       <Route path="/inbox">
         <AppShell><Inbox /></AppShell>
-      </Route>
-
-      <Route path="/chat">
-        <AppShell><Chat /></AppShell>
-      </Route>
-      <Route path="/chat/:id">
-        <AppShell><Chat /></AppShell>
       </Route>
 
       <Route path="/collectors">

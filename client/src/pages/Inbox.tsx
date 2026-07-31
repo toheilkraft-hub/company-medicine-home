@@ -10,7 +10,7 @@ import {
   Brain, Building2, FolderOpen, Smile, Send,
   User, Calendar, Hash, Activity,
   Play, Pause, Square, Plus, ChevronDown, ChevronUp,
-  Trash2, Wifi, Download, Bell, X,
+  Trash2, Wifi, Download, Bell, X, Search, Timer,
 } from "lucide-react";
 import type { CollectedItemRow, ItemStatus, MonitorRow } from "@shared/types";
 
@@ -111,16 +111,36 @@ function exportToXLS(items: CollectedItemRow[]) {
   XLSX.writeFile(wb, `iheal-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
+// ── Source configs ─────────────────────────────────────────────────────────────
+
+const SOURCES = [
+  { id: "reddit", label: "Reddit",  color: "text-orange-600" },
+  { id: "quora",  label: "Quora",   color: "text-red-600"    },
+  { id: "web",    label: "Web",     color: "text-blue-600"   },
+] as const;
+
+const TIMELINES = [
+  { value: "hour",  label: "Past hour"    },
+  { value: "day",   label: "Past 24 hours"},
+  { value: "week",  label: "Past week"    },
+  { value: "month", label: "Past month"   },
+] as const;
+
 // ── Monitors panel ────────────────────────────────────────────────────────────
 
 function MonitorsPanel() {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showForm, setShowForm]     = useState(false);
-  const [formTopic, setFormTopic]   = useState("");
-  const [formSource, setFormSource] = useState<"reddit" | "rss">("reddit");
+
+  // form state
+  const [formTopic,     setFormTopic]     = useState("");
+  const [formSources,   setFormSources]   = useState<Set<string>>(new Set(["reddit"]));
+  const [formTimeline,  setFormTimeline]  = useState("week");
   const [formSubreddit, setFormSubreddit] = useState("");
-  const [formRssUrl, setFormRssUrl]       = useState("");
-  const [creating, setCreating]           = useState(false);
+
+  // search state
+  const [searching, setSearching] = useState<number | null>(null); // monitorId being run
+
   const qc = useQueryClient();
 
   const { data } = useQuery<{ monitors: MonitorRow[] }>({
@@ -151,47 +171,92 @@ function MonitorsPanel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["monitors"] }),
   });
 
-  async function handleCreate() {
+  function toggleSource(id: string) {
+    setFormSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size === 1) return prev; // keep at least one
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function handleSearch() {
     if (!formTopic.trim()) return;
-    if (formSource === "rss" && !formRssUrl.trim()) return;
-    setCreating(true);
+    setSearching(-1); // indicate creating
+
+    const srcArr = [...formSources];
+    const primarySource = srcArr.length === 1 ? srcArr[0] : "multi";
+
+    let monitor: MonitorRow;
     try {
-      await apiFetch("/api/monitors", "POST", {
+      const resp = await apiFetch<{ monitor: MonitorRow }>("/api/monitors", "POST", {
         name: formTopic.trim(),
         topic: formTopic.trim(),
-        source: formSource,
-        sourceConfig:
-          formSource === "reddit"
-            ? { subreddit: formSubreddit.trim() }
-            : { url: formRssUrl.trim() },
+        source: primarySource,
+        sourceConfig: {
+          sources: JSON.stringify(srcArr),
+          timeFilter: formTimeline,
+          subreddit: formSubreddit.trim(),
+        },
       });
-      await qc.invalidateQueries({ queryKey: ["monitors"] });
-      setFormTopic(""); setFormSubreddit(""); setFormRssUrl(""); setShowForm(false);
-    } finally {
-      setCreating(false);
+      monitor = resp.monitor;
+    } catch {
+      setSearching(null);
+      return;
     }
+
+    await qc.invalidateQueries({ queryKey: ["monitors"] });
+
+    // Immediately run the monitor
+    setSearching(monitor.id);
+    try {
+      await apiFetch(`/api/monitors/${monitor.id}/run`, "POST");
+      await qc.invalidateQueries({ queryKey: ["inbox"] });
+      await qc.invalidateQueries({ queryKey: ["monitors"] });
+    } finally {
+      setSearching(null);
+      setFormTopic("");
+      setFormSubreddit("");
+      setFormSources(new Set(["reddit"]));
+      setFormTimeline("week");
+      setShowForm(false);
+    }
+  }
+
+  // Source labels for a monitor's sourceConfig
+  function monitorSources(m: MonitorRow): string {
+    const cfg = m.sourceConfig as Record<string, string>;
+    if (cfg?.sources) {
+      try { return JSON.parse(cfg.sources).join(", "); } catch { /* */ }
+    }
+    return m.source;
   }
 
   return (
     <div className="border-b border-gray-100">
+      {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5">
         <button onClick={() => setIsExpanded((v) => !v)} className="flex items-center gap-1.5 flex-1 min-w-0">
           <Wifi size={11} className={cn("shrink-0", activeCount > 0 ? "text-green-500" : "text-gray-400")} />
-          <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Monitors</span>
-          {monitorList.length > 0 && (
-            <span className={cn("ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold",
-              activeCount > 0 ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>
-              {activeCount} active
+          <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Research Monitors</span>
+          {activeCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-green-100 text-green-700">
+              {activeCount} live · 5min
             </span>
           )}
-          {isExpanded ? <ChevronUp size={11} className="text-gray-400 ml-auto shrink-0" />
-                      : <ChevronDown size={11} className="text-gray-400 ml-auto shrink-0" />}
+          {isExpanded
+            ? <ChevronUp size={11} className="text-gray-400 ml-auto shrink-0" />
+            : <ChevronDown size={11} className="text-gray-400 ml-auto shrink-0" />}
         </button>
         <button
           onClick={() => { setShowForm((v) => !v); setIsExpanded(true); }}
           className={cn("p-1 rounded-md transition-colors shrink-0",
             showForm ? "bg-brand-100 text-brand-700" : "text-gray-400 hover:text-brand-600 hover:bg-gray-100")}
-          title="Add monitor"
+          title="New search"
         >
           <Plus size={12} />
         </button>
@@ -199,83 +264,186 @@ function MonitorsPanel() {
 
       {isExpanded && (
         <div className="pb-2">
+
+          {/* ── New search form ───────────────────────────────────────── */}
           {showForm && (
             <div className="mx-3 mb-2 bg-brand-50 border border-brand-100 rounded-xl p-3 space-y-2.5">
-              <p className="text-[10px] font-bold text-brand-700 uppercase tracking-wider">New Monitor</p>
+              <p className="text-[10px] font-bold text-brand-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Search size={10} /> New Research Search
+              </p>
+
+              {/* Topic input */}
               <div>
-                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Topic / search query</label>
-                <input type="text" value={formTopic} onChange={(e) => setFormTopic(e.target.value)}
-                  placeholder="e.g. AI in healthcare"
+                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Search topic</label>
+                <input
+                  type="text"
+                  value={formTopic}
+                  onChange={(e) => setFormTopic(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  placeholder="e.g. cancer treatment breakthroughs"
                   className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
-                  autoFocus />
+                  autoFocus
+                />
               </div>
-              <div className="flex gap-3">
-                {(["reddit", "rss"] as const).map((s) => (
-                  <label key={s} className={cn("flex items-center gap-1.5 text-xs cursor-pointer",
-                    formSource === s ? "text-brand-700 font-semibold" : "text-gray-500")}>
-                    <input type="radio" name="mon-source" checked={formSource === s}
-                      onChange={() => setFormSource(s)} className="accent-brand-600" />
-                    {s === "reddit" ? "Reddit" : "RSS Feed"}
+
+              {/* Source checkboxes */}
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1.5 font-medium">Search in</label>
+                <div className="flex flex-wrap gap-2">
+                  {SOURCES.map(({ id, label, color }) => (
+                    <label
+                      key={id}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors select-none",
+                        formSources.has(id)
+                          ? "bg-white border-brand-400 text-brand-700 shadow-sm"
+                          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={formSources.has(id)}
+                        onChange={() => toggleSource(id)}
+                        className="accent-brand-600 w-3 h-3"
+                      />
+                      <span className={cn("font-semibold", formSources.has(id) ? color : "")}>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Optional subreddit (only if reddit checked) */}
+              {formSources.has("reddit") && (
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-1 font-medium">
+                    Subreddit <span className="text-gray-400">(optional)</span>
                   </label>
-                ))}
+                  <input
+                    type="text"
+                    value={formSubreddit}
+                    onChange={(e) => setFormSubreddit(e.target.value)}
+                    placeholder="e.g. science or leave blank for all"
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
+                  />
+                </div>
+              )}
+
+              {/* Timeline */}
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1 font-medium">Post timeline</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {TIMELINES.map(({ value, label }) => (
+                    <label
+                      key={value}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-medium cursor-pointer transition-colors select-none",
+                        formTimeline === value
+                          ? "bg-white border-brand-400 text-brand-700 shadow-sm"
+                          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="mon-timeline"
+                        checked={formTimeline === value}
+                        onChange={() => setFormTimeline(value)}
+                        className="accent-brand-600 w-3 h-3"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
               </div>
-              {formSource === "reddit" && (
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-1 font-medium">Subreddit <span className="text-gray-400">(optional)</span></label>
-                  <input type="text" value={formSubreddit} onChange={(e) => setFormSubreddit(e.target.value)}
-                    placeholder="e.g. MachineLearning"
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white" />
-                </div>
-              )}
-              {formSource === "rss" && (
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-1 font-medium">Feed URL <span className="text-red-400">*</span></label>
-                  <input type="url" value={formRssUrl} onChange={(e) => setFormRssUrl(e.target.value)}
-                    placeholder="https://example.com/feed.xml"
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white" />
-                </div>
-              )}
+
+              {/* Note about auto-refresh */}
+              <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white rounded-lg border border-gray-200 text-[10px] text-gray-500">
+                <Timer size={10} className="text-brand-400 shrink-0" />
+                Auto-refreshes every <strong className="text-brand-600 mx-0.5">5 minutes</strong> until you stop it
+              </div>
+
+              {/* Buttons */}
               <div className="flex gap-2 pt-0.5">
-                <button onClick={handleCreate}
-                  disabled={creating || !formTopic.trim() || (formSource === "rss" && !formRssUrl.trim())}
-                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold disabled:opacity-50 transition-colors">
-                  {creating ? "Starting…" : "Start Monitoring"}
+                <button
+                  onClick={handleSearch}
+                  disabled={searching !== null || !formTopic.trim()}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold disabled:opacity-50 transition-colors"
+                >
+                  {searching !== null ? (
+                    <><Loader2 size={11} className="animate-spin" />Searching…</>
+                  ) : (
+                    <><Search size={11} />Search</>
+                  )}
                 </button>
-                <button onClick={() => setShowForm(false)}
-                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-500 text-xs hover:bg-gray-50 transition-colors">
+                <button
+                  onClick={() => { setShowForm(false); setSearching(null); }}
+                  className="px-2.5 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs hover:bg-gray-50 transition-colors"
+                >
                   Cancel
                 </button>
               </div>
             </div>
           )}
 
+          {/* ── Monitor list ──────────────────────────────────────────── */}
           {monitorList.length === 0 ? (
-            <p className="px-4 py-2 text-[10px] text-gray-400">
-              No monitors yet —{" "}
-              <button onClick={() => setShowForm(true)} className="text-brand-600 hover:underline font-medium">
-                + Add Monitor
-              </button>{" "}
-              to start collecting.
-            </p>
+            <div className="px-4 py-3 text-center">
+              <p className="text-[10px] text-gray-400 mb-1.5">No searches running yet</p>
+              <button
+                onClick={() => { setShowForm(true); setIsExpanded(true); }}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:underline"
+              >
+                <Search size={10} /> Start a research search
+              </button>
+            </div>
           ) : (
             <>
-              <div className="max-h-48 overflow-y-auto space-y-px px-2">
+              <div className="max-h-52 overflow-y-auto space-y-px px-2">
                 {monitorList.map((m) => (
                   <div key={m.id} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 group">
-                    <span className={cn("w-1.5 h-1.5 rounded-full shrink-0",
-                      m.status === "active" ? "bg-green-500 animate-pulse"
-                      : m.status === "paused" ? "bg-amber-400" : "bg-gray-300")} />
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full shrink-0",
+                      searching === m.id
+                        ? "bg-brand-500 animate-pulse"
+                        : m.status === "active"
+                          ? "bg-green-500 animate-pulse"
+                          : m.status === "paused" ? "bg-amber-400" : "bg-gray-300",
+                    )} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-medium text-gray-700 truncate">{m.name}</p>
-                      <span className={cn("text-[9px] font-semibold uppercase",
-                        m.source === "reddit" ? "text-orange-500" : "text-yellow-600")}>
-                        {m.source}
-                      </span>
-                      {m.lastRunAt && <span className="text-[9px] text-gray-400 ml-1">· {timeAgo(m.lastRunAt)}</span>}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="text-[9px] font-semibold text-gray-400 uppercase">
+                          {monitorSources(m)}
+                        </span>
+                        {m.lastRunAt && (
+                          <span className="text-[9px] text-gray-400">· {timeAgo(m.lastRunAt)}</span>
+                        )}
+                        {searching === m.id && (
+                          <span className="text-[9px] text-brand-500 font-semibold">· Searching…</span>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Controls: show on hover */}
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Manual run now */}
+                      <button
+                        onClick={async () => {
+                          setSearching(m.id);
+                          try {
+                            await apiFetch(`/api/monitors/${m.id}/run`, "POST");
+                            await qc.invalidateQueries({ queryKey: ["inbox"] });
+                            await qc.invalidateQueries({ queryKey: ["monitors"] });
+                          } finally { setSearching(null); }
+                        }}
+                        disabled={searching !== null}
+                        title="Search now"
+                        className="p-1 rounded hover:bg-brand-100 text-gray-400 hover:text-brand-600 transition-colors disabled:opacity-30"
+                      >
+                        <Search size={9} />
+                      </button>
+
                       {m.status === "active" ? (
-                        <button onClick={() => updateMonitor.mutate({ id: m.id, status: "paused" })} title="Pause"
+                        <button onClick={() => updateMonitor.mutate({ id: m.id, status: "paused" })} title="Pause auto-refresh"
                           className="p-1 rounded hover:bg-amber-100 text-gray-400 hover:text-amber-600 transition-colors">
                           <Pause size={10} />
                         </button>
@@ -285,6 +453,7 @@ function MonitorsPanel() {
                           <Play size={10} />
                         </button>
                       )}
+
                       {m.status !== "stopped" ? (
                         <button onClick={() => updateMonitor.mutate({ id: m.id, status: "stopped" })} title="Stop"
                           className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 transition-colors">
@@ -300,6 +469,7 @@ function MonitorsPanel() {
                   </div>
                 ))}
               </div>
+
               {(activeCount > 0 || pausedCount > 0) && (
                 <div className="flex gap-1.5 px-3 pt-2">
                   {activeCount > 0 && (

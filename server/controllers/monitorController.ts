@@ -3,6 +3,7 @@ import { db } from "../config/db.js";
 import { monitors } from "../../shared/schema.js";
 import { eq, and, desc } from "drizzle-orm";
 import { ok, fail, asyncHandler } from "../utils/helpers.js";
+import { runMonitorById } from "../services/monitorService.js";
 
 export const listMonitors = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.session.userId!;
@@ -20,12 +21,12 @@ export const createMonitor = asyncHandler(async (req: Request, res: Response) =>
     name?: string;
     topic?: string;
     source?: string;
-    sourceConfig?: Record<string, string>;
+    sourceConfig?: Record<string, unknown>;
   };
 
   if (!topic?.trim()) return fail(res, "topic is required");
   if (!source) return fail(res, "source is required");
-  if (source === "rss" && !sourceConfig?.url?.trim()) {
+  if (source === "rss" && !(sourceConfig?.url as string)?.trim()) {
     return fail(res, "RSS feed URL is required");
   }
 
@@ -36,7 +37,7 @@ export const createMonitor = asyncHandler(async (req: Request, res: Response) =>
       name: (name || topic).trim(),
       topic: topic.trim(),
       source,
-      sourceConfig: sourceConfig ?? {},
+      sourceConfig: (sourceConfig ?? {}) as Record<string, string>,
       status: "active",
     })
     .returning();
@@ -89,4 +90,19 @@ export const stopAll = asyncHandler(async (req: Request, res: Response) => {
     .set({ status: "stopped", updatedAt: new Date() })
     .where(eq(monitors.userId, userId));
   ok(res, {});
+});
+
+// ── Immediate run ─────────────────────────────────────────────────────────────
+
+export const runNow = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.session.userId!;
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return fail(res, "invalid id");
+
+  try {
+    const result = await runMonitorById(id, userId);
+    ok(res, result);
+  } catch (err: any) {
+    return fail(res, err.message ?? "Run failed", 500);
+  }
 });
