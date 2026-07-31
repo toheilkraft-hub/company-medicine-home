@@ -7,7 +7,7 @@ import { apiFetch } from "../lib/queryClient";
 import {
   Send, Plus, Trash2, Copy, Check, StopCircle,
   MessageSquare, Paperclip, RotateCcw, ChevronDown,
-  Settings2, Cpu, X, PenLine, BookOpen,
+  Settings2, Cpu, X, PenLine, BookOpen, Inbox, ExternalLink,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn, timeAgo } from "../lib/utils";
@@ -20,6 +20,99 @@ interface ConversationStub {
   updatedAt: string;
   model: string | null;
   provider: string | null;
+}
+
+interface InboxPushNotification {
+  source: "reddit" | "ai-research";
+  count: number;
+  topic?: string;
+  timeFilter?: string;
+  items: Array<{ title: string; url: string | null }>;
+  error?: string;
+}
+
+// ── Inbox Push Banner ─────────────────────────────────────────────────────────
+function InboxPushBanner({
+  notif,
+  onDismiss,
+  onNavigate,
+}: {
+  notif: InboxPushNotification;
+  onDismiss: () => void;
+  onNavigate: () => void;
+}) {
+  const isReddit = notif.source === "reddit";
+  const hasError = !!notif.error;
+
+  return (
+    <div className="mx-4 my-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className={cn(
+        "flex items-start gap-3 px-4 py-3 rounded-xl border text-sm",
+        hasError
+          ? "bg-amber-50 border-amber-200 text-amber-800"
+          : "bg-emerald-50 border-emerald-200 text-emerald-800"
+      )}>
+        <div className={cn(
+          "mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center",
+          hasError ? "bg-amber-100" : "bg-emerald-100"
+        )}>
+          <Inbox size={14} className={hasError ? "text-amber-600" : "text-emerald-600"} />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          {hasError ? (
+            <p className="font-medium">Reddit search returned no results</p>
+          ) : notif.count === 0 ? (
+            <p className="font-medium">No new items found (already in your inbox)</p>
+          ) : (
+            <>
+              <p className="font-medium">
+                {notif.count} {isReddit ? "Reddit post" : "research item"}{notif.count !== 1 ? "s" : ""} added to your Inbox
+                {notif.topic && <span className="font-normal text-emerald-700"> · <em>{notif.topic}</em></span>}
+                {notif.timeFilter && notif.timeFilter !== "week" && (
+                  <span className="font-normal text-emerald-600 text-xs ml-1">({notif.timeFilter})</span>
+                )}
+              </p>
+              {notif.items.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5">
+                  {notif.items.slice(0, 3).map((item, i) => (
+                    <li key={i} className="text-xs text-emerald-700 truncate flex items-center gap-1">
+                      <span className="w-1 h-1 rounded-full bg-emerald-400 shrink-0" />
+                      {item.url ? (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer"
+                          className="hover:underline truncate flex items-center gap-0.5">
+                          {item.title}
+                          <ExternalLink size={10} className="shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="truncate">{item.title}</span>
+                      )}
+                    </li>
+                  ))}
+                  {notif.items.length > 3 && (
+                    <li className="text-xs text-emerald-600">+{notif.items.length - 3} more…</li>
+                  )}
+                </ul>
+              )}
+              <button
+                onClick={onNavigate}
+                className="mt-2 text-xs font-medium text-emerald-700 hover:text-emerald-900 underline underline-offset-2 flex items-center gap-1"
+              >
+                <Inbox size={11} /> Open Inbox to review
+              </button>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={onDismiss}
+          className={cn("p-1 rounded hover:bg-black/10 transition-colors", hasError ? "text-amber-500" : "text-emerald-500")}
+        >
+          <X size={13} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -248,6 +341,7 @@ export default function Chat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [inboxPush, setInboxPush] = useState<InboxPushNotification | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -389,6 +483,17 @@ export default function Chat() {
             } else if (event.type === "done") {
               qc.invalidateQueries({ queryKey: ["conversation", convId] });
               qc.invalidateQueries({ queryKey: ["conversations"] });
+            } else if (event.type === "inbox_push") {
+              setInboxPush({
+                source: event.source ?? "ai-research",
+                count: event.count ?? 0,
+                topic: event.topic,
+                timeFilter: event.timeFilter,
+                items: event.items ?? [],
+                error: event.error,
+              });
+              // Refresh inbox data in background
+              qc.invalidateQueries({ queryKey: ["inbox"] });
             }
           } catch {
             // ignore malformed SSE lines
@@ -410,6 +515,7 @@ export default function Chat() {
     const content = input.trim();
     if (!content || isStreaming) return;
     setInput("");
+    setInboxPush(null); // clear any previous inbox push banner
 
     if (!convId) {
       // Create conversation first, then navigate
@@ -614,6 +720,13 @@ export default function Chat() {
                   ) : null}
                 </div>
               </div>
+            )}
+            {inboxPush && (
+              <InboxPushBanner
+                notif={inboxPush}
+                onDismiss={() => setInboxPush(null)}
+                onNavigate={() => { setInboxPush(null); navigate("/inbox"); }}
+              />
             )}
           </>
         )}

@@ -91,10 +91,13 @@ function parseRSSFeed(xml: string, since?: Date): FeedItem[] {
 
 // ── Reddit fetcher (public JSON API — no auth required) ───────────────────────
 
-async function fetchRedditItems(
+export type RedditTimeFilter = "hour" | "day" | "week" | "month" | "year" | "all";
+
+export async function fetchRedditItems(
   topic: string,
   subreddit: string | undefined,
   since?: Date,
+  timeFilter: RedditTimeFilter = "week",
 ): Promise<FeedItem[]> {
   const base = subreddit
     ? `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/search.json`
@@ -103,8 +106,8 @@ async function fetchRedditItems(
   const params = new URLSearchParams({
     q: topic,
     sort: "new",
-    limit: "10",
-    t: "week",
+    limit: "25",
+    t: timeFilter,
     ...(subreddit ? { restrict_sr: "1" } : {}),
   });
 

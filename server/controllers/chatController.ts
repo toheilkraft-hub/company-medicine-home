@@ -9,6 +9,7 @@ import {
   summarizeText,
   listModels,
 } from "../services/aiService.js";
+import { fetchRedditItems, type RedditTimeFilter } from "../services/monitorService.js";
 import type { AIMessage } from "../../shared/types.js";
 import { logger } from "../middleware/logger.js";
 
@@ -118,7 +119,7 @@ export const clearConversation = asyncHandler(async (req: Request, res: Response
   return ok(res, { cleared: true });
 });
 
-// ─── Research intent detection ─────────────────────────────────────────────────
+// ─── Research / inbox intent detection ─────────────────────────────────────────
 
 const RESEARCH_KEYWORDS = [
   "find", "search", "research", "look for", "look up", "discover",
@@ -131,6 +132,129 @@ const RESEARCH_KEYWORDS = [
 function isResearchRequest(message: string): boolean {
   const lower = message.toLowerCase();
   return RESEARCH_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+interface RedditSearchIntent {
+  detected: boolean;
+  topic: string;
+  subreddit?: string;
+  timeFilter: RedditTimeFilter;
+}
+
+function detectRedditSearchIntent(message: string): RedditSearchIntent {
+  const lower = message.toLowerCase();
+
+  // Must mention reddit and have a search verb
+  const hasReddit = lower.includes("reddit");
+  const hasSearchVerb = [
+    "find", "search", "research", "look for", "fetch", "get",
+    "show me", "collect", "track", "send", "add", "put",
+  ].some((kw) => lower.includes(kw));
+
+  if (!hasReddit || !hasSearchVerb) {
+    return { detected: false, topic: message.slice(0, 100), timeFilter: "week" };
+  }
+
+  // Time filter
+  let timeFilter: RedditTimeFilter = "week";
+  if (/past\s+\d*\s*hour|last\s+hour/i.test(message)) timeFilter = "hour";
+  else if (/past\s+[12]\s*days?|last\s+[12]\s*days?|today|yesterday/i.test(message)) timeFilter = "day";
+  else if (/past\s+(3|4|5|6|7)\s*days?|this week|last week/i.test(message)) timeFilter = "week";
+  else if (/past\s+month|last\s+month/i.test(message)) timeFilter = "month";
+  else if (/past\s+year|last\s+year/i.test(message)) timeFilter = "year";
+
+  // Optional r/subreddit
+  const subMatch = /\br\/(\w+)/i.exec(message);
+  const subreddit = subMatch ? subMatch[1] : undefined;
+
+  // Extract the topic by stripping instruction words
+  const topic = message
+    .replace(/please|can you|could you/gi, "")
+    .replace(/\b(find|search|research|look for|look up|fetch|get|show me|collect|gather|track|send|add|put)\b/gi, "")
+    .replace(/\b(in|on|from|via|through|using)\s+reddit\b/gi, "")
+    .replace(/\bin\s+(the\s+)?inbox\b|\bto\s+(the\s+)?inbox\b|\badd\s+to\s+(the\s+)?inbox\b/gi, "")
+    .replace(/\bfor\s+the\s+past\s+\d+\s+\w+\b|\blast\s+\d+\s+\w+\b|\bpast\s+\w+\b/gi, "")
+    .replace(/\btoday\b|\byesterday\b|\bthis\s+week\b|\blast\s+week\b/gi, "")
+    .replace(/\br\/\w+/gi, "")
+    .replace(/\band\s+etc\.?/gi, "")
+    .replace(/[,;]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 120);
+
+  return {
+    detected: true,
+    topic: topic || message.slice(0, 80),
+    subreddit,
+    timeFilter,
+  };
+}
+
+// ─── Fetch real Reddit posts and push them to inbox ────────────────────────────
+
+async function fetchRedditAndPushToInbox(
+  userId: number,
+  intent: RedditSearchIntent,
+): Promise<{ count: number; items: Array<{ title: string; url: string | null }> }> {
+  // Convert timeFilter to a `since` Date for dedup (rough lower bound)
+  const sinceMs: Record<RedditTimeFilter, number> = {
+    hour: 60 * 60 * 1000,
+    day: 24 * 60 * 60 * 1000,
+    week: 7 * 24 * 60 * 60 * 1000,
+    month: 30 * 24 * 60 * 60 * 1000,
+    year: 365 * 24 * 60 * 60 * 1000,
+    all: 0,
+  };
+  const since = sinceMs[intent.timeFilter]
+    ? new Date(Date.now() - sinceMs[intent.timeFilter])
+    : undefined;
+
+  const posts = await fetchRedditItems(
+    intent.topic,
+    intent.subreddit,
+    since,
+    intent.timeFilter,
+  );
+
+  if (posts.length === 0) return { count: 0, items: [] };
+
+  const pushed: Array<{ title: string; url: string | null }> = [];
+
+  for (const post of posts) {
+    // URL-based deduplication
+    if (post.url) {
+      const existing = await db
+        .select({ id: collectedItems.id })
+        .from(collectedItems)
+        .where(eq(collectedItems.url, post.url))
+        .limit(1);
+      if (existing.length > 0) continue;
+    }
+
+    await db.insert(collectedItems).values({
+      userId,
+      title: post.title.slice(0, 200),
+      content: (post.content || post.title).slice(0, 2000),
+      source: "reddit",
+      url: post.url || null,
+      author: post.author || null,
+      collectedAt: post.publishedAt ?? new Date(),
+      tags: [intent.topic.slice(0, 50)],
+      status: "new",
+    });
+
+    pushed.push({ title: post.title, url: post.url ?? null });
+  }
+
+  logger.info("Chat → Inbox: Reddit fetch", {
+    userId,
+    topic: intent.topic,
+    timeFilter: intent.timeFilter,
+    found: posts.length,
+    pushed: pushed.length,
+  });
+
+  return { count: pushed.length, items: pushed };
 }
 
 // ─── Push AI findings to Intelligence Inbox ────────────────────────────────────
@@ -410,19 +534,39 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
 
     send({ type: "done", assistantMessage: assistantMsg, metadata: finalMetadata });
 
-    // ── Chat → Inbox: push findings if this was a research request ─────────
-    if (isResearchRequest(content) && fullContent.length > 100) {
+    // ── Chat → Inbox: real Reddit fetch OR AI extraction ───────────────────
+    const redditIntent = detectRedditSearchIntent(content);
+
+    if (redditIntent.detected) {
+      // Path 1: real Reddit posts
+      try {
+        const result = await fetchRedditAndPushToInbox(userId, redditIntent);
+        send({
+          type: "inbox_push",
+          source: "reddit",
+          topic: redditIntent.topic,
+          timeFilter: redditIntent.timeFilter,
+          count: result.count,
+          items: result.items.slice(0, 5),
+        });
+      } catch (e: any) {
+        logger.warn("Reddit inbox_push failed", { err: e?.message });
+        send({ type: "inbox_push", source: "reddit", count: 0, error: e?.message });
+      }
+    } else if (isResearchRequest(content) && fullContent.length > 100) {
+      // Path 2: AI-extracted findings from the chat response
       try {
         const pushed = await pushFindingsToInbox(userId, content, fullContent, activeModel, activeTemp);
         if (pushed.length > 0) {
           send({
             type: "inbox_push",
+            source: "ai-research",
             count: pushed.length,
-            items: pushed.map((i) => ({ title: i.title, source: i.source })),
+            items: pushed.map((i) => ({ title: i.title, url: null })),
           });
         }
       } catch (e: any) {
-        logger.warn("inbox_push failed silently", { err: e?.message });
+        logger.warn("AI inbox_push failed silently", { err: e?.message });
       }
     }
 
