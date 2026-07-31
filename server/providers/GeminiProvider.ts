@@ -39,7 +39,7 @@ export class GeminiProvider implements IProvider {
 
   constructor(apiKey: string, defaultModel?: string) {
     this.apiKey = apiKey;
-    this.defaultModel = defaultModel ?? "gemini-2.0-flash";
+    this.defaultModel = defaultModel ?? "gemini-2.5-flash";
     this.client = new GoogleGenerativeAI(apiKey);
   }
 
@@ -195,11 +195,10 @@ Message: "${message}"`,
       // Fragments that indicate non-chat models
       const EXCLUDE_FRAGMENTS = ["embedding", "aqa", "vision"];
 
-      // Bare deprecated aliases that appear in the list but fail for new users.
-      // Versioned variants (e.g. gemini-2.5-flash-preview-05-20) are still allowed.
+      // Bare deprecated aliases that no longer work for most keys.
+      // gemini-2.5-flash and gemini-2.5-pro are intentionally kept — they are
+      // the target models for accounts with 250 k RPD access.
       const DEPRECATED_EXACT = new Set([
-        "models/gemini-2.5-flash",
-        "models/gemini-2.5-pro",
         "models/gemini-1.5-flash",
         "models/gemini-1.5-pro",
         "models/gemini-pro",
@@ -237,10 +236,11 @@ Message: "${message}"`,
           return priority(a.id) - priority(b.id);
         });
     } catch {
-      // Fallback: only stable models known to work for new users
+      // Fallback static list
       return [
-        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast, capable — works for all accounts", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", description: "Lightweight and fast", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Latest — 250 k RPD, best for most tasks", maxTokens: 65536, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Most capable Gemini model", maxTokens: 65536, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast and widely available", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
       ];
     }
   }

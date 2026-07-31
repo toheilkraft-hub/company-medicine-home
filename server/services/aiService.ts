@@ -20,23 +20,34 @@ import type {
 
 // ── Provider config resolution ────────────────────────────────────────────────
 
+// ── Environment-level defaults ────────────────────────────────────────────────
+// If GEMINI_API_KEY is set as a Replit Secret it overrides the per-user DB key
+// so the site works out-of-the-box without requiring Settings configuration.
+const ENV_GEMINI_KEY = process.env.GEMINI_API_KEY;
+const ENV_DEFAULT_PROVIDER: ProviderID = ENV_GEMINI_KEY ? "gemini" : "mock";
+const ENV_DEFAULT_MODEL = "gemini-2.5-flash";
+
 export async function getProviderConfig(userId: number): Promise<ProviderConfig> {
   const userSettings = await db.query.settings.findFirst({
     where: eq(settings.userId, userId),
   });
 
-  const provider = (userSettings?.provider as ProviderID) ?? "mock";
+  // Prefer the DB-saved provider; fall back to env-derived default
+  const provider = (userSettings?.provider as ProviderID) ?? ENV_DEFAULT_PROVIDER;
 
-  // Pick the correct API key for the active provider
+  // API key: DB value wins; env key is the automatic fallback for gemini
   let apiKey: string | undefined;
-  if (provider === "gemini") apiKey = userSettings?.geminiApiKey ?? undefined;
-  else if (provider === "openai") apiKey = userSettings?.openaiApiKey ?? undefined;
-  else if (provider === "anthropic") apiKey = userSettings?.anthropicApiKey ?? undefined;
+  if (provider === "gemini")
+    apiKey = userSettings?.geminiApiKey ?? ENV_GEMINI_KEY ?? undefined;
+  else if (provider === "openai")
+    apiKey = userSettings?.openaiApiKey ?? undefined;
+  else if (provider === "anthropic")
+    apiKey = userSettings?.anthropicApiKey ?? undefined;
 
   return {
     provider,
     apiKey,
-    defaultModel: userSettings?.defaultModel ?? undefined,
+    defaultModel: userSettings?.defaultModel ?? ENV_DEFAULT_MODEL,
   };
 }
 

@@ -18,6 +18,8 @@ import monitorRoutes from "./routes/monitors.js";
 import { db } from "./config/db.js";
 import { users, settings, collectedItems, itemAnalysis } from "../shared/schema.js";
 import { eq, sql } from "drizzle-orm";
+
+const ENV_GEMINI_KEY = process.env.GEMINI_API_KEY;
 import { startQueue } from "./services/queueService.js";
 import { startMonitorService } from "./services/monitorService.js";
 
@@ -106,6 +108,27 @@ app.get("*", (_req, res) => {
 // ─── Error handler (must be last) ────────────────────────────────────────────
 app.use(errorHandler);
 
+// ─── Auto-configure Gemini from env ──────────────────────────────────────────
+// If GEMINI_API_KEY is present, write it into the settings row so the UI
+// reflects the active provider/model without the user touching Settings.
+async function bootstrapGeminiFromEnv(userId: number): Promise<void> {
+  if (!ENV_GEMINI_KEY) return;
+  try {
+    await db
+      .update(settings)
+      .set({
+        provider: "gemini",
+        geminiApiKey: ENV_GEMINI_KEY,
+        defaultModel: "gemini-2.5-flash",
+        updatedAt: new Date(),
+      })
+      .where(eq(settings.userId, userId));
+    logger.info("Gemini configured from environment (gemini-2.5-flash)");
+  } catch (err: any) {
+    logger.warn("bootstrapGeminiFromEnv failed", { err: err?.message ?? String(err) });
+  }
+}
+
 // ─── One-time seed cleanup ────────────────────────────────────────────────────
 // Removes any previously-seeded mock items so the inbox always starts clean.
 // Safe to run repeatedly — deletes cascade to item_analysis via FK.
@@ -125,6 +148,9 @@ async function clearSeedData(): Promise<void> {
 app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`iHeal AI server listening on port ${PORT}`);
   await bootstrapGuestUser();
+  if (guestUserId !== null) {
+    await bootstrapGeminiFromEnv(guestUserId);
+  }
   await clearSeedData();
   if (guestUserId !== null) {
     startQueue(guestUserId);
