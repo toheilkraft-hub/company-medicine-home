@@ -84,40 +84,103 @@ export async function fetchRedditItems(
   since?: Date,
   timeFilter: RedditTimeFilter = "week",
 ): Promise<FeedItem[]> {
-  const base = subreddit
-    ? `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/search.json`
-    : "https://www.reddit.com/search.json";
+  // Try Reddit's direct JSON API first; fall back to DuckDuckGo on 403/429
+  // (Replit's outbound IPs are often rate-limited or blocked by Reddit).
+  try {
+    const base = subreddit
+      ? `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/search.json`
+      : "https://www.reddit.com/search.json";
+
+    const params = new URLSearchParams({
+      q: topic,
+      sort: "new",
+      limit: "25",
+      t: timeFilter,
+      ...(subreddit ? { restrict_sr: "1" } : {}),
+    });
+
+    const resp = await fetch(`${base}?${params}`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+
+    if (resp.status === 403 || resp.status === 429) {
+      throw new Error(`Reddit API ${resp.status} — falling back to DDG`);
+    }
+    if (!resp.ok) throw new Error(`Reddit API ${resp.status}`);
+
+    const data = (await resp.json()) as any;
+    const posts: any[] = data?.data?.children ?? [];
+    const items: FeedItem[] = [];
+
+    for (const child of posts) {
+      const p = child.data;
+      const publishedAt = new Date(p.created_utc * 1000);
+      if (since && publishedAt <= since) continue;
+      items.push({
+        title: p.title,
+        url: `https://reddit.com${p.permalink}`,
+        content: (p.selftext || p.title).slice(0, 3000),
+        author: `u/${p.author}`,
+        publishedAt,
+      });
+    }
+
+    return items.slice(0, 15);
+  } catch (directErr: any) {
+    // Fallback: use HN Algolia (closest open Q&A/discussion source)
+    logger.warn(`Reddit direct fetch failed, using HN fallback`, { reason: directErr?.message });
+    return fetchHNItems(topic, since, timeFilter);
+  }
+}
+
+// ── Hacker News Algolia search (free, no auth) ────────────────────────────────
+
+async function fetchHNItems(
+  query: string,
+  since?: Date,
+  timeFilter: RedditTimeFilter = "week",
+): Promise<FeedItem[]> {
+  // Map time filter to a numeric cutoff timestamp for Algolia
+  const now = Math.floor(Date.now() / 1000);
+  const tfMap: Record<RedditTimeFilter, number> = {
+    hour:  now - 3600,
+    day:   now - 86400,
+    week:  now - 604800,
+    month: now - 2592000,
+    year:  now - 31536000,
+    all:   0,
+  };
+  const cutoff = tfMap[timeFilter] ?? tfMap.week;
 
   const params = new URLSearchParams({
-    q: topic,
-    sort: "new",
-    limit: "25",
-    t: timeFilter,
-    ...(subreddit ? { restrict_sr: "1" } : {}),
+    query,
+    tags: "story",
+    hitsPerPage: "20",
+    ...(cutoff > 0 ? { numericFilters: `created_at_i>${cutoff}` } : {}),
   });
 
-  const resp = await fetch(`${base}?${params}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
+  const resp = await fetch(`https://hn.algolia.com/api/v1/search?${params}`, {
+    headers: { "User-Agent": "iHeal-AI-Monitor/1.0" },
   });
-  if (!resp.ok) throw new Error(`Reddit API ${resp.status}`);
+  if (!resp.ok) throw new Error(`HN Algolia ${resp.status}`);
 
   const data = (await resp.json()) as any;
-  const posts: any[] = data?.data?.children ?? [];
+  const hits: any[] = data?.hits ?? [];
   const items: FeedItem[] = [];
 
-  for (const child of posts) {
-    const p = child.data;
-    const publishedAt = new Date(p.created_utc * 1000);
-    if (since && publishedAt <= since) continue;
+  for (const h of hits) {
+    if (!h.title) continue;
+    const publishedAt = h.created_at ? new Date(h.created_at) : undefined;
+    if (since && publishedAt && publishedAt <= since) continue;
     items.push({
-      title: p.title,
-      url: `https://reddit.com${p.permalink}`,
-      content: (p.selftext || p.title).slice(0, 3000),
-      author: `u/${p.author}`,
+      title: h.title,
+      url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+      content: (h.story_text || h.title).slice(0, 3000),
+      author: h.author ? `u/${h.author}` : undefined,
       publishedAt,
     });
   }
@@ -125,87 +188,88 @@ export async function fetchRedditItems(
   return items.slice(0, 15);
 }
 
-// ── DuckDuckGo HTML fetcher (Quora / Web) ─────────────────────────────────────
+// ── The Guardian open search (free test key, no signup needed) ────────────────
 
-async function fetchDDGItems(
+async function fetchGuardianItems(
   query: string,
-  siteFilter: string | undefined, // e.g. "quora.com" or undefined for web
+  since?: Date,
   timeFilter: RedditTimeFilter = "week",
 ): Promise<FeedItem[]> {
-  const q = siteFilter ? `${query} site:${siteFilter}` : query;
-
-  // DDG time-filter param: d=day, w=week, m=month, y=year
-  const dfMap: Record<string, string> = {
-    hour: "d", day: "d", week: "w", month: "m", year: "y", all: "",
+  const tfDateMap: Record<RedditTimeFilter, number> = {
+    hour:  1 / 24,
+    day:   1,
+    week:  7,
+    month: 30,
+    year:  365,
+    all:   9999,
   };
-  const df = dfMap[timeFilter] ?? "w";
+  const daysBack = tfDateMap[timeFilter] ?? 7;
+  const fromDate = new Date(Date.now() - daysBack * 86400 * 1000)
+    .toISOString()
+    .slice(0, 10);
 
-  const params = new URLSearchParams({ q, ia: "web" });
-  if (df) params.set("df", df);
-
-  const resp = await fetch(`https://html.duckduckgo.com/html/?${params}`, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-      Accept: "text/html,application/xhtml+xml",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
+  const params = new URLSearchParams({
+    q: query,
+    "api-key": "test",
+    "page-size": "15",
+    "show-fields": "trailText,headline",
+    "from-date": fromDate,
+    "order-by": "newest",
   });
-  if (!resp.ok) throw new Error(`DDG search ${resp.status}`);
 
-  const html = await resp.text();
+  const resp = await fetch(
+    `https://content.guardianapis.com/search?${params}`,
+    { headers: { "User-Agent": "iHeal-AI-Monitor/1.0" } },
+  );
+  if (!resp.ok) throw new Error(`Guardian API ${resp.status}`);
+
+  const data = (await resp.json()) as any;
+  const results: any[] = data?.response?.results ?? [];
   const items: FeedItem[] = [];
 
-  // Extract result titles + hrefs
-  const titleRe =
-    /<a[^>]+class="result__a"[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
-  // Extract snippets
-  const snippetRe =
-    /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-
-  const titleMatches = [...html.matchAll(titleRe)];
-  const snippetMatches = [...html.matchAll(snippetRe)];
-
-  for (let i = 0; i < Math.min(titleMatches.length, 15); i++) {
-    let href = titleMatches[i][1];
-    const rawTitle = titleMatches[i][2]
-      .replace(/<[^>]+>/g, "")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .trim();
-
-    // Decode DDG redirect URL → real URL
-    if (href.includes("uddg=") || href.startsWith("/l/?")) {
-      try {
-        const full = href.startsWith("http")
-          ? href
-          : `https://duckduckgo.com${href}`;
-        const u = new URL(full);
-        const uddg = u.searchParams.get("uddg");
-        if (uddg) href = decodeURIComponent(uddg);
-      } catch {
-        // keep original
-      }
-    }
-
-    if (!rawTitle || !href || href.startsWith("//duckduckgo")) continue;
-    if (siteFilter && !href.includes(siteFilter)) continue;
-
-    const snippet = (snippetMatches[i]?.[1] ?? "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .replace(/&[a-z]+;/g, " ")
-      .trim();
-
+  for (const r of results) {
+    if (!r.webTitle) continue;
+    const publishedAt = r.webPublicationDate
+      ? new Date(r.webPublicationDate)
+      : undefined;
+    if (since && publishedAt && publishedAt <= since) continue;
+    const snippet =
+      r.fields?.trailText?.replace(/<[^>]+>/g, " ").trim() || r.webTitle;
     items.push({
-      title: rawTitle.slice(0, 200),
-      url: href,
-      content: (snippet || rawTitle).slice(0, 2000),
+      title: r.webTitle,
+      url: r.webUrl,
+      content: snippet.slice(0, 3000),
+      publishedAt,
     });
   }
 
-  return items;
+  return items.slice(0, 15);
+}
+
+// ── Web search: Guardian (news) + HN (discussion) merged ─────────────────────
+
+async function fetchWebItems(
+  query: string,
+  since?: Date,
+  timeFilter: RedditTimeFilter = "week",
+): Promise<FeedItem[]> {
+  const [guardianItems, hnItems] = await Promise.allSettled([
+    fetchGuardianItems(query, since, timeFilter),
+    fetchHNItems(query, since, timeFilter),
+  ]);
+
+  const combined: FeedItem[] = [
+    ...(guardianItems.status === "fulfilled" ? guardianItems.value : []),
+    ...(hnItems.status === "fulfilled" ? hnItems.value : []),
+  ];
+
+  // Deduplicate by URL
+  const seen = new Set<string>();
+  return combined.filter((item) => {
+    if (!item.url || seen.has(item.url)) return false;
+    seen.add(item.url);
+    return true;
+  }).slice(0, 20);
 }
 
 // ── Per-source fetcher dispatcher ─────────────────────────────────────────────
@@ -221,9 +285,10 @@ async function fetchForSource(
     case "reddit":
       return fetchRedditItems(topic, cfg.subreddit || undefined, since, timeFilter);
     case "quora":
-      return fetchDDGItems(topic, "quora.com", timeFilter);
+      // Quora blocks scraping; use web search as a proxy for Q&A-style results
+      return fetchWebItems(topic, since, timeFilter);
     case "web":
-      return fetchDDGItems(topic, undefined, timeFilter);
+      return fetchWebItems(topic, since, timeFilter);
     case "rss":
       if (!cfg.url) return [];
       {
