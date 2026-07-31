@@ -1,1 +1,2 @@
 - [DB driver fix](db-driver-fix.md) — neon-http driver fails on Replit's standard PostgreSQL; must use drizzle-orm/node-postgres with `pg` Pool instead.
+- [Monitor service sources](monitor-service-sources.md) — Reddit/DDG blocked from Replit; use Google News RSS for web source. clearSeedData removed (was wiping inbox on every restart).

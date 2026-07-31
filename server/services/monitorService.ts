@@ -137,139 +137,57 @@ export async function fetchRedditItems(
   }
 }
 
-// ── Hacker News Algolia search (free, no auth) ────────────────────────────────
+// ── Google News RSS (free, no auth, topic-exact) ──────────────────────────────
+// Google News RSS is a search-engine backed feed: every result is about the
+// query. We parse it with the existing RSS parser and apply a `since` date
+// filter so we only ingest items newer than the last run.
 
-async function fetchHNItems(
+async function fetchGoogleNewsItems(
   query: string,
   since?: Date,
-  timeFilter: RedditTimeFilter = "week",
 ): Promise<FeedItem[]> {
-  // Map time filter to a numeric cutoff timestamp for Algolia
-  const now = Math.floor(Date.now() / 1000);
-  const tfMap: Record<RedditTimeFilter, number> = {
-    hour:  now - 3600,
-    day:   now - 86400,
-    week:  now - 604800,
-    month: now - 2592000,
-    year:  now - 31536000,
-    all:   0,
-  };
-  const cutoff = tfMap[timeFilter] ?? tfMap.week;
-
-  const params = new URLSearchParams({
-    query,
-    tags: "story",
-    hitsPerPage: "20",
-    ...(cutoff > 0 ? { numericFilters: `created_at_i>${cutoff}` } : {}),
-  });
-
-  const resp = await fetch(`https://hn.algolia.com/api/v1/search?${params}`, {
-    headers: { "User-Agent": "iHeal-AI-Monitor/1.0" },
-  });
-  if (!resp.ok) throw new Error(`HN Algolia ${resp.status}`);
-
-  const data = (await resp.json()) as any;
-  const hits: any[] = data?.hits ?? [];
-  const items: FeedItem[] = [];
-
-  for (const h of hits) {
-    if (!h.title) continue;
-    const publishedAt = h.created_at ? new Date(h.created_at) : undefined;
-    if (since && publishedAt && publishedAt <= since) continue;
-    items.push({
-      title: h.title,
-      url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
-      content: (h.story_text || h.title).slice(0, 3000),
-      author: h.author ? `u/${h.author}` : undefined,
-      publishedAt,
-    });
-  }
-
-  return items.slice(0, 15);
-}
-
-// ── The Guardian open search (free test key, no signup needed) ────────────────
-
-async function fetchGuardianItems(
-  query: string,
-  since?: Date,
-  timeFilter: RedditTimeFilter = "week",
-): Promise<FeedItem[]> {
-  const tfDateMap: Record<RedditTimeFilter, number> = {
-    hour:  1 / 24,
-    day:   1,
-    week:  7,
-    month: 30,
-    year:  365,
-    all:   9999,
-  };
-  const daysBack = tfDateMap[timeFilter] ?? 7;
-  const fromDate = new Date(Date.now() - daysBack * 86400 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
   const params = new URLSearchParams({
     q: query,
-    "api-key": "test",
-    "page-size": "15",
-    "show-fields": "trailText,headline",
-    "from-date": fromDate,
-    "order-by": "newest",
+    hl: "en-US",
+    gl: "US",
+    ceid: "US:en",
   });
 
-  const resp = await fetch(
-    `https://content.guardianapis.com/search?${params}`,
-    { headers: { "User-Agent": "iHeal-AI-Monitor/1.0" } },
-  );
-  if (!resp.ok) throw new Error(`Guardian API ${resp.status}`);
+  const url = `https://news.google.com/rss/search?${params}`;
+  const xml = await fetch(url, {
+    headers: { "User-Agent": "iHeal-AI-Monitor/1.0" },
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Google News RSS ${r.status}`);
+    return r.text();
+  });
 
-  const data = (await resp.json()) as any;
-  const results: any[] = data?.response?.results ?? [];
-  const items: FeedItem[] = [];
+  // Google News wraps real URLs in a redirect — extract the actual source URL
+  // from the <link> tag before the <title> in each item.
+  const rawItems = parseRSSFeed(xml, since);
 
-  for (const r of results) {
-    if (!r.webTitle) continue;
-    const publishedAt = r.webPublicationDate
-      ? new Date(r.webPublicationDate)
-      : undefined;
-    if (since && publishedAt && publishedAt <= since) continue;
-    const snippet =
-      r.fields?.trailText?.replace(/<[^>]+>/g, " ").trim() || r.webTitle;
-    items.push({
-      title: r.webTitle,
-      url: r.webUrl,
-      content: snippet.slice(0, 3000),
-      publishedAt,
-    });
-  }
-
-  return items.slice(0, 15);
+  // Unwrap Google's redirect links (format: https://news.google.com/rss/articles/...)
+  // The real URL is embedded as the last segment after base64 decoding — too
+  // fragile. Instead, keep the Google link but strip the /rss/ prefix so it
+  // opens as a readable page in a browser.
+  return rawItems.map((item) => ({
+    ...item,
+    url: item.url.replace(
+      /^https:\/\/news\.google\.com\/rss\//,
+      "https://news.google.com/",
+    ),
+  }));
 }
 
-// ── Web search: Guardian (news) + HN (discussion) merged ─────────────────────
+// ── Web search: Google News (primary) ────────────────────────────────────────
 
 async function fetchWebItems(
   query: string,
   since?: Date,
-  timeFilter: RedditTimeFilter = "week",
+  _timeFilter: RedditTimeFilter = "week",
 ): Promise<FeedItem[]> {
-  const [guardianItems, hnItems] = await Promise.allSettled([
-    fetchGuardianItems(query, since, timeFilter),
-    fetchHNItems(query, since, timeFilter),
-  ]);
-
-  const combined: FeedItem[] = [
-    ...(guardianItems.status === "fulfilled" ? guardianItems.value : []),
-    ...(hnItems.status === "fulfilled" ? hnItems.value : []),
-  ];
-
-  // Deduplicate by URL
-  const seen = new Set<string>();
-  return combined.filter((item) => {
-    if (!item.url || seen.has(item.url)) return false;
-    seen.add(item.url);
-    return true;
-  }).slice(0, 20);
+  // Google News RSS is search-engine backed, so results are always on-topic.
+  // No secondary source needed — this is more accurate than any scraper.
+  return fetchGoogleNewsItems(query, since);
 }
 
 // ── Per-source fetcher dispatcher ─────────────────────────────────────────────

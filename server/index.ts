@@ -129,30 +129,12 @@ async function bootstrapGeminiFromEnv(userId: number): Promise<void> {
   }
 }
 
-// ─── One-time seed cleanup ────────────────────────────────────────────────────
-// Removes any previously-seeded mock items so the inbox always starts clean.
-// Safe to run repeatedly — deletes cascade to item_analysis via FK.
-async function clearSeedData(): Promise<void> {
-  try {
-    await db.execute(sql`DELETE FROM item_analysis`);
-    await db.execute(sql`DELETE FROM collected_items`);
-    logger.info("Seed cleanup: inbox cleared");
-  } catch (err: any) {
-    logger.warn("Seed cleanup failed — inbox may contain mock data", {
-      err: err?.message ?? String(err),
-    });
-  }
-}
-
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`iHeal AI server listening on port ${PORT}`);
   await bootstrapGuestUser();
   if (guestUserId !== null) {
     await bootstrapGeminiFromEnv(guestUserId);
-  }
-  await clearSeedData();
-  if (guestUserId !== null) {
     startQueue(guestUserId);
   }
   startMonitorService();
