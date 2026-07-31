@@ -312,7 +312,8 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
     where: eq(settings.userId, userId),
   });
 
-  const activeModel = conv.model ?? userSettings?.defaultModel ?? undefined;
+  const FALLBACK_MODEL = "gemini-2.0-flash";
+  const activeModel = conv.model ?? userSettings?.defaultModel ?? FALLBACK_MODEL;
   const activeTemp  = parseFloat(userSettings?.temperature ?? "0.7");
 
   // SSE headers
@@ -325,17 +326,39 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
   const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
   send({ type: "start", userMessageId: userMsg.id });
 
-  let fullContent = "";
-  let finalMetadata: Record<string, unknown> = {};
+  /** Returns true if the error indicates the model is unavailable/deprecated. */
+  const isModelUnavailable = (err: any) => {
+    const msg: string = err?.message ?? "";
+    return (
+      msg.includes("no longer available") ||
+      msg.includes("not available with your API key") ||
+      msg.includes("404") ||
+      msg.toLowerCase().includes("not found")
+    );
+  };
 
-  try {
-    const gen = generateStream(userId, historyAsc, {
-      model: activeModel,
+  /** Auto-heal: update DB so the bad model isn't used again. */
+  const healModel = async () => {
+    await Promise.all([
+      db.update(conversations).set({ model: FALLBACK_MODEL, updatedAt: new Date() }).where(eq(conversations.id, convId)),
+      db.update(settings).set({ defaultModel: FALLBACK_MODEL, updatedAt: new Date() }).where(eq(settings.userId, userId)),
+    ]).catch(() => {/* non-fatal */});
+    logger.warn("Auto-healed model to fallback", { from: activeModel, to: FALLBACK_MODEL });
+  };
+
+  const streamWithModel = (model: string | undefined) =>
+    generateStream(userId, historyAsc, {
+      model,
       temperature: activeTemp,
       maxTokens: userSettings?.maxTokens ?? 2048,
       systemPrompt: conv.systemPromptContent ?? undefined,
     });
 
+  let fullContent = "";
+  let finalMetadata: Record<string, unknown> = {};
+
+  // Try with the saved model; if unavailable, auto-retry with the fallback.
+  const runStream = async (gen: ReturnType<typeof generateStream>) => {
     while (true) {
       const { value, done } = await gen.next();
       if (done) {
@@ -351,6 +374,21 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
       }
       fullContent += value as string;
       send({ type: "token", content: value });
+    }
+  };
+
+  try {
+    try {
+      await runStream(streamWithModel(activeModel));
+    } catch (err: any) {
+      if (isModelUnavailable(err) && activeModel !== FALLBACK_MODEL) {
+        await healModel();
+        fullContent = "";
+        send({ type: "model_fallback", from: activeModel, to: FALLBACK_MODEL });
+        await runStream(streamWithModel(FALLBACK_MODEL));
+      } else {
+        throw err;
+      }
     }
 
     const [assistantMsg] = await db
