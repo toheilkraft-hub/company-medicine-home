@@ -152,19 +152,32 @@ Message: "${message}"`,
   async listModels(): Promise<ModelInfo[]> {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}&pageSize=100`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { models?: Array<{ name: string; displayName: string; description?: string; outputTokenLimit?: number; supportedGenerationMethods?: string[] }> };
+      const data = await res.json() as {
+        models?: Array<{
+          name: string;
+          displayName: string;
+          description?: string;
+          inputTokenLimit?: number;
+          outputTokenLimit?: number;
+          supportedGenerationMethods?: string[];
+        }>;
+      };
 
-      // Known deprecated / unavailable model name fragments to exclude
-      const DEPRECATED = ["vision", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-ultra", "aqa"];
+      // Exclude non-chat model name fragments (embeddings, image-only, legacy, utility)
+      const EXCLUDE_FRAGMENTS = ["embedding", "aqa", "gemini-ultra", "vision"];
 
       return (data.models ?? [])
         .filter((m) => {
+          // Must support text generation
           if (!m.supportedGenerationMethods?.includes("generateContent")) return false;
+          // Must have a usable input token limit (zero = not available for standard use)
+          if ((m.inputTokenLimit ?? 0) === 0) return false;
+          // Exclude non-chat model types
           const id = m.name.toLowerCase();
-          return !DEPRECATED.some((d) => id.includes(d));
+          return !EXCLUDE_FRAGMENTS.some((frag) => id.includes(frag));
         })
         .map((m) => ({
           id: m.name.replace("models/", ""),
@@ -173,14 +186,25 @@ Message: "${message}"`,
           maxTokens: m.outputTokenLimit ?? 8192,
           supportsStreaming: true,
           provider: "gemini" as const,
-        }));
+        }))
+        // Sort: newest / most capable first
+        .sort((a, b) => {
+          const priority = (id: string) => {
+            if (id.includes("2.5")) return 0;
+            if (id.includes("2.0")) return 1;
+            if (id.includes("1.5")) return 2;
+            return 3;
+          };
+          return priority(a.id) - priority(b.id);
+        });
     } catch {
-      // Fallback static list
+      // Fallback static list with latest available chat models
       return [
-        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Latest fast model", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Fast and efficient", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Most capable Gemini model", maxTokens: 32768, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-pro", name: "Gemini Pro", description: "Balanced performance", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Latest fast model — best for most tasks", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Most capable Gemini model", maxTokens: 32768, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast and efficient", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Reliable and cost-effective", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "High-capability 1.5 model", maxTokens: 32768, supportsStreaming: true, provider: "gemini" },
       ];
     }
   }

@@ -16,10 +16,9 @@ import collectRoutes from "./routes/collect.js";
 import collectorConfigRoutes from "./routes/collectorConfig.js";
 import monitorRoutes from "./routes/monitors.js";
 import { db } from "./config/db.js";
-import { users, settings } from "../shared/schema.js";
-import { eq } from "drizzle-orm";
+import { users, settings, collectedItems, itemAnalysis } from "../shared/schema.js";
+import { eq, sql } from "drizzle-orm";
 import { startQueue } from "./services/queueService.js";
-import { seedMockData } from "./services/seeder.js";
 import { startMonitorService } from "./services/monitorService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,12 +106,27 @@ app.get("*", (_req, res) => {
 // ─── Error handler (must be last) ────────────────────────────────────────────
 app.use(errorHandler);
 
+// ─── One-time seed cleanup ────────────────────────────────────────────────────
+// Removes any previously-seeded mock items so the inbox always starts clean.
+// Safe to run repeatedly — deletes cascade to item_analysis via FK.
+async function clearSeedData(): Promise<void> {
+  try {
+    await db.execute(sql`DELETE FROM item_analysis`);
+    await db.execute(sql`DELETE FROM collected_items`);
+    logger.info("Seed cleanup: inbox cleared");
+  } catch (err: any) {
+    logger.warn("Seed cleanup failed — inbox may contain mock data", {
+      err: err?.message ?? String(err),
+    });
+  }
+}
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`iHeal AI server listening on port ${PORT}`);
   await bootstrapGuestUser();
+  await clearSeedData();
   if (guestUserId !== null) {
-    await seedMockData(guestUserId);
     startQueue(guestUserId);
   }
   startMonitorService();
