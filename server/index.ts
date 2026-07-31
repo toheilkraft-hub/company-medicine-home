@@ -119,11 +119,11 @@ async function bootstrapGeminiFromEnv(userId: number): Promise<void> {
       .set({
         provider: "gemini",
         geminiApiKey: ENV_GEMINI_KEY,
-        defaultModel: "gemini-2.5-flash",
+        defaultModel: "gemini-flash-latest",
         updatedAt: new Date(),
       })
       .where(eq(settings.userId, userId));
-    logger.info("Gemini configured from environment (gemini-2.5-flash)");
+    logger.info("Gemini configured from environment (gemini-flash-latest)");
   } catch (err: any) {
     logger.warn("bootstrapGeminiFromEnv failed", { err: err?.message ?? String(err) });
   }

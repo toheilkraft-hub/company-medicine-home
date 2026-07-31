@@ -39,7 +39,7 @@ export class GeminiProvider implements IProvider {
 
   constructor(apiKey: string, defaultModel?: string) {
     this.apiKey = apiKey;
-    this.defaultModel = defaultModel ?? "gemini-2.5-flash";
+    this.defaultModel = defaultModel ?? "gemini-flash-latest";
     this.client = new GoogleGenerativeAI(apiKey);
   }
 
@@ -236,11 +236,11 @@ Message: "${message}"`,
           return priority(a.id) - priority(b.id);
         });
     } catch {
-      // Fallback static list
+      // Fallback static list — alias models that resolve reliably across keys
       return [
-        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Latest — 250 k RPD, best for most tasks", maxTokens: 65536, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Most capable Gemini model", maxTokens: 65536, supportsStreaming: true, provider: "gemini" },
-        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast and widely available", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-flash-latest", name: "Gemini Flash (Latest)", description: "Always resolves to the newest available Flash model", maxTokens: 65536, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Latest 2.5 generation", maxTokens: 65536, supportsStreaming: true, provider: "gemini" },
+        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Stable 2.0 generation", maxTokens: 8192, supportsStreaming: true, provider: "gemini" },
       ];
     }
   }

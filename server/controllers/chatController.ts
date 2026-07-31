@@ -49,7 +49,7 @@ export const createConversation = asyncHandler(async (req: Request, res: Respons
     .values({
       userId,
       title: title ?? "New Conversation",
-      model: model ?? userSettings?.defaultModel ?? "gemini-2.5-flash",
+      model: model ?? userSettings?.defaultModel ?? "gemini-flash-latest",
       provider: provider ?? userSettings?.provider ?? "mock",
       systemPromptId: systemPromptId ?? null,
       systemPromptContent: systemPromptContent ?? null,
@@ -312,7 +312,7 @@ export const streamMessage = asyncHandler(async (req: Request, res: Response) =>
     where: eq(settings.userId, userId),
   });
 
-  const FALLBACK_MODEL = "gemini-2.5-flash";
+  const FALLBACK_MODEL = "gemini-flash-latest";
   const activeModel = conv.model ?? userSettings?.defaultModel ?? FALLBACK_MODEL;
   const activeTemp  = parseFloat(userSettings?.temperature ?? "0.7");
 

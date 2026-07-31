@@ -25,7 +25,7 @@ import type {
 // so the site works out-of-the-box without requiring Settings configuration.
 const ENV_GEMINI_KEY = process.env.GEMINI_API_KEY;
 const ENV_DEFAULT_PROVIDER: ProviderID = ENV_GEMINI_KEY ? "gemini" : "mock";
-const ENV_DEFAULT_MODEL = "gemini-2.5-flash";
+const ENV_DEFAULT_MODEL = "gemini-flash-latest";
 
 export async function getProviderConfig(userId: number): Promise<ProviderConfig> {
   const userSettings = await db.query.settings.findFirst({
