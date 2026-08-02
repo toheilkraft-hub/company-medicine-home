@@ -988,59 +988,59 @@ function ItemDetail({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="flex-1 min-w-0">
-            {/* Title — responsive, wraps on small screens */}
-            <h2 className="text-sm sm:text-base font-bold text-gray-900 leading-snug break-words">
-              {item.title}
-            </h2>
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <SourceBadge source={item.source} />
-              <StatusBadge status={item.status} />
-              {a && (
-                <span className={cn("text-xs font-bold px-2 py-0.5 rounded border", priorityColor(a.priorityScore))}>
-                  Priority {a.priorityScore}
-                </span>
-              )}
-              {a && (
-                <span className={cn("text-xs font-bold px-2 py-0.5 rounded border", seoColor(a.seoScore).bg, seoColor(a.seoScore).text)}>
-                  SEO {a.seoScore}
-                </span>
-              )}
-              <span className="text-xs text-gray-400">{timeAgo(item.collectedAt)}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
+      <div className="px-5 py-3 border-b border-gray-200 bg-white shrink-0">
+        {/* Row 1: title + action buttons */}
+        <div className="flex items-start gap-3">
+          <h2 className="flex-1 min-w-0 text-sm font-bold text-gray-900 leading-snug break-words">
+            {item.title}
+          </h2>
+          {/* Actions — icon-only with tooltips to save space */}
+          <div className="flex items-center gap-1 shrink-0">
             {item.url && (
-              <a href={item.url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-brand-200 hover:bg-brand-50 text-brand-700 text-xs font-semibold transition-colors">
-                <ExternalLink size={12} />View Source
+              <a href={item.url} target="_blank" rel="noopener noreferrer" title="View source"
+                className="p-1.5 rounded-lg border border-brand-200 hover:bg-brand-50 text-brand-600 transition-colors">
+                <ExternalLink size={13} />
               </a>
             )}
             {item.status !== "reviewed" && item.status !== "archived" && (
-              <button onClick={() => onStatusChange("reviewed")} disabled={isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold transition-colors disabled:opacity-60">
-                <CheckCircle size={13} />Approve
+              <button onClick={() => onStatusChange("reviewed")} disabled={isPending} title="Approve"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold transition-colors disabled:opacity-60">
+                <CheckCircle size={12} />Approve
               </button>
             )}
             {item.status === "reviewed" && (
-              <button onClick={() => onStatusChange("archived")} disabled={isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-xs font-semibold transition-colors disabled:opacity-60">
-                <Archive size={13} />Archive
+              <button onClick={() => onStatusChange("archived")} disabled={isPending} title="Archive"
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors disabled:opacity-60">
+                <Archive size={13} />
               </button>
             )}
             {item.status === "archived" && (
-              <button onClick={() => onStatusChange("new")} disabled={isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 text-xs font-semibold transition-colors disabled:opacity-60">
-                <RefreshCw size={13} />Restore
+              <button onClick={() => onStatusChange("new")} disabled={isPending} title="Restore"
+                className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors disabled:opacity-60">
+                <RefreshCw size={13} />
               </button>
             )}
-            <button onClick={onDelete} disabled={isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold transition-colors disabled:opacity-60">
-              <Trash2 size={13} />Delete
+            <button onClick={onDelete} disabled={isPending} title="Delete"
+              className="p-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-500 transition-colors disabled:opacity-60">
+              <Trash2 size={13} />
             </button>
           </div>
+        </div>
+        {/* Row 2: badges */}
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          <SourceBadge source={item.source} />
+          <StatusBadge status={item.status} />
+          {a && (
+            <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded border", priorityColor(a.priorityScore))}>
+              P·{a.priorityScore}
+            </span>
+          )}
+          {a && (
+            <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded border", seoColor(a.seoScore).bg, seoColor(a.seoScore).text)}>
+              SEO·{a.seoScore}
+            </span>
+          )}
+          <span className="text-[10px] text-gray-400 ml-auto">{timeAgo(item.collectedAt)}</span>
         </div>
       </div>
 
