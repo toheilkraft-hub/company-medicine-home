@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { db } from "../config/db.js";
 import { collectedItems, itemAnalysis } from "../../shared/schema.js";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import { ok, fail, asyncHandler, parsePagination } from "../utils/helpers.js";
 import type { ItemStatus } from "../../shared/types.js";
 
@@ -87,4 +87,35 @@ export const updateItemStatus = asyncHandler(async (req: Request, res: Response)
 
   if (!updated.length) return fail(res, "Item not found", 404);
   ok(res, updated[0]);
+});
+
+// ── Delete single item ────────────────────────────────────────────────────────
+
+export const deleteItem = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.session.userId!;
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return fail(res, "Invalid item ID");
+
+  const deleted = await db
+    .delete(collectedItems)
+    .where(and(eq(collectedItems.id, id), eq(collectedItems.userId, userId)))
+    .returning({ id: collectedItems.id });
+
+  if (!deleted.length) return fail(res, "Item not found", 404);
+  ok(res, { deleted: deleted[0].id });
+});
+
+// ── Bulk delete ───────────────────────────────────────────────────────────────
+
+export const bulkDeleteItems = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.session.userId!;
+  const { ids } = req.body as { ids: number[] };
+  if (!Array.isArray(ids) || ids.length === 0) return fail(res, "ids must be a non-empty array");
+
+  const deleted = await db
+    .delete(collectedItems)
+    .where(and(inArray(collectedItems.id, ids), eq(collectedItems.userId, userId)))
+    .returning({ id: collectedItems.id });
+
+  ok(res, { deleted: deleted.length });
 });

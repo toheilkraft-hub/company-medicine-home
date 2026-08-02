@@ -974,10 +974,11 @@ function SEOPanel({ analysis }: { analysis: NonNullable<CollectedItemRow["analys
 // ── Item detail ───────────────────────────────────────────────────────────────
 
 function ItemDetail({
-  item, onStatusChange, isPending,
+  item, onStatusChange, onDelete, isPending,
 }: {
   item: CollectedItemRow;
   onStatusChange: (status: ItemStatus) => void;
+  onDelete: () => void;
   isPending: boolean;
 }) {
   const a = item.analysis;
@@ -1035,6 +1036,10 @@ function ItemDetail({
                 <RefreshCw size={13} />Restore
               </button>
             )}
+            <button onClick={onDelete} disabled={isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold transition-colors disabled:opacity-60">
+              <Trash2 size={13} />Delete
+            </button>
           </div>
         </div>
       </div>
@@ -1244,6 +1249,23 @@ export default function Inbox() {
     },
   });
 
+  const deleteItem = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/inbox/${id}`, "DELETE"),
+    onSuccess: () => {
+      setSelectedId(null);
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+    },
+  });
+
+  const bulkDelete = useMutation({
+    mutationFn: (ids: number[]) => apiFetch("/api/inbox/bulk-delete", "POST", { ids }),
+    onSuccess: () => {
+      setSelectedIds(new Set());
+      setSelectedId(null);
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+    },
+  });
+
   const items  = listData?.items  ?? [];
   const counts = listData?.counts ?? { new: 0, processing: 0, reviewed: 0, archived: 0, all: 0 };
 
@@ -1424,14 +1446,19 @@ export default function Inbox() {
 
         {/* Bulk action bar */}
         {someSelected && (
-          <div className="shrink-0 border-t border-blue-200 bg-blue-50 px-4 py-2.5 flex items-center gap-3">
+          <div className="shrink-0 border-t border-blue-200 bg-blue-50 px-4 py-2.5 flex items-center gap-2">
             <span className="text-xs font-bold text-blue-700 flex-1">
-              {selectedIds.size} item{selectedIds.size > 1 ? "s" : ""} selected
+              {selectedIds.size} selected
             </span>
             <button onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-colors">
-              <Download size={12} />
-              Export XLS
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-colors">
+              <Download size={11} />XLS
+            </button>
+            <button
+              onClick={() => { if (confirm(`Delete ${selectedIds.size} item${selectedIds.size > 1 ? "s" : ""}?`)) bulkDelete.mutate([...selectedIds]); }}
+              disabled={bulkDelete.isPending}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors disabled:opacity-60">
+              <Trash2 size={11} />{bulkDelete.isPending ? "Deleting…" : "Delete"}
             </button>
             <button onClick={() => setSelectedIds(new Set())}
               className="text-xs text-blue-500 hover:text-blue-700 font-medium">
@@ -1452,7 +1479,8 @@ export default function Inbox() {
         <ItemDetail
           item={selectedItem}
           onStatusChange={(status) => updateStatus.mutate({ id: selectedItem.id, status })}
-          isPending={updateStatus.isPending}
+          onDelete={() => { if (confirm("Delete this item?")) deleteItem.mutate(selectedItem.id); }}
+          isPending={updateStatus.isPending || deleteItem.isPending}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-gray-50">
