@@ -204,6 +204,12 @@ function MonitorsPanel({ onSearchDone }: { onSearchDone: () => void }) {
     if (!formTopic.trim()) return;
     setSearching(-1);
 
+    // Stop all existing monitors before starting a new one
+    if (monitorList.length > 0) {
+      await apiFetch("/api/monitors/stop-all", "POST").catch(() => {});
+      await qc.invalidateQueries({ queryKey: ["monitors"] });
+    }
+
     const srcArr = [...formSources];
     const primarySource = srcArr.length === 1 ? srcArr[0] : "multi";
 
